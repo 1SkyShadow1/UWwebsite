@@ -1,0 +1,60 @@
+{
+  "note": "Illustrative material and furniture references only; images are not supplier samples, stocked SKUs, or product specifications.",
+  "sources": {
+    "Pexels": {
+      "license": "https://www.pexels.com/license/",
+      "attributionRequired": false
+    },
+    "ambientCG": {
+      "license": "https://docs.ambientcg.com/license/",
+      "licenseName": "CC0 1.0 Universal"
+    }
+  },
+  "assets": [
+    { "path": "public/assets/library/materials/leather-seam.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/30989203/pexels-photo-30989203/free-photo-of-close-up-of-brown-textured-leather-with-seam.jpeg" },
+    { "path": "public/assets/library/materials/leather037-surface.webp", "source": "ambientCG", "sourceId": "Leather037", "sourceUrl": "https://ambientcg.com/a/Leather037" },
+    { "path": "public/assets/library/materials/velvet-pile.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/7717505/pexels-photo-7717505.jpeg" },
+    { "path": "public/assets/library/materials/red-velvet-alt.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/36305726/pexels-photo-36305726/free-photo-of-luxurious-red-velvet-fabric-drape-pattern.jpeg" },
+    { "path": "public/assets/library/materials/leather039-surface.webp", "source": "ambientCG", "sourceId": "Leather039", "sourceUrl": "https://ambientcg.com/a/Leather039" },
+    { "path": "public/assets/library/materials/fabric061-surface.webp", "source": "ambientCG", "sourceId": "Fabric061", "sourceUrl": "https://ambientcg.com/a/Fabric061" },
+    { "path": "public/assets/library/materials/corduroy-swatch-alt.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/35009242/pexels-photo-35009242/free-photo-of-stacked-corduroy-fabrics-in-various-colors.jpeg" },
+    { "path": "public/assets/library/materials/boucle-loops.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/6045258/pexels-photo-6045258.jpeg" },
+    { "path": "public/assets/library/materials/fabric019-surface.webp", "source": "ambientCG", "sourceId": "Fabric019", "sourceUrl": "https://ambientcg.com/a/Fabric019" },
+    { "path": "public/assets/library/materials/natural-weave.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/36346049/pexels-photo-36346049/free-photo-of-close-up-of-natural-fabric-texture.jpeg" },
+    { "path": "public/assets/library/materials/fabric036-surface.webp", "source": "ambientCG", "sourceId": "Fabric036", "sourceUrl": "https://ambientcg.com/a/Fabric036" },
+    { "path": "public/assets/library/materials/textile-stack.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/30902516/pexels-photo-30902516/free-photo-of-colorful-stacked-fabrics-on-shelves.jpeg" },
+    { "path": "public/assets/library/materials/woven-textile.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/34851019/pexels-photo-34851019/free-photo-of-woven-blue-textile-fabric-with-subtle-waves.jpeg" },
+    { "path": "public/assets/library/materials/damask-pattern.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/9890206/pexels-photo-9890206.jpeg" },
+    { "path": "public/assets/library/materials/herringbone-cushion-alt.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/36585035/pexels-photo-36585035/free-photo-of-modern-brown-herringbone-pattern-cushion-close-up.png" },
+    { "path": "public/assets/library/materials/suede-texture-alt.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/3721330/pexels-photo-3721330.jpeg" },
+    { "path": "public/assets/library/materials/fabric082a-surface.webp", "source": "ambientCG", "sourceId": "Fabric082A", "sourceUrl": "https://ambientcg.com/a/Fabric082A" },
+    { "path": "public/assets/library/materials/fabric048-surface.webp", "source": "ambientCG", "sourceId": "Fabric048", "sourceUrl": "https://ambientcg.com/a/Fabric048" },
+    { "path": "public/assets/library/materials/satin-sheen.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/7956629/pexels-photo-7956629.jpeg" },
+    { "path": "public/assets/library/materials/fabric066-surface.webp", "source": "ambientCG", "sourceId": "Fabric066", "sourceUrl": "https://ambientcg.com/a/Fabric066" },
+    { "path": "public/assets/library/materials/synthetic-leather.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/33425500/pexels-photo-33425500/free-photo-of-stack-of-colorful-synthetic-leather-fabrics.jpeg" },
+    { "path": "public/assets/library/materials/plastic006-surface.webp", "source": "ambientCG", "sourceId": "Plastic006", "sourceUrl": "https://ambientcg.com/a/Plastic006" },
+    { "path": "public/assets/library/materials/outdoor-canvas.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/12871505/pexels-photo-12871505.jpeg" },
+    { "path": "public/assets/library/materials/fabric063-surface.webp", "source": "ambientCG", "sourceId": "Fabric063", "sourceUrl": "https://ambientcg.com/a/Fabric063" },
+    { "path": "public/assets/library/materials/outdoor-cushions.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/11802406/pexels-photo-11802406.jpeg" },
+    { "path": "public/assets/library/furniture/chesterfield-alt.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/8232377/pexels-photo-8232377.jpeg" },
+    { "path": "public/assets/library/furniture/three-seat-sofa.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/279652/pexels-photo-279652.jpeg" },
+    { "path": "public/assets/library/furniture/apartment-sofa.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/4846097/pexels-photo-4846097.jpeg" },
+    { "path": "public/assets/library/furniture/loveseat-alt.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/29681174/pexels-photo-29681174/free-photo-of-moody-shadows-on-a-loveseat-in-natural-light.png" },
+    { "path": "public/assets/library/furniture/modular-sectional.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/4172381/pexels-photo-4172381.jpeg" },
+    { "path": "public/assets/library/furniture/chaise-alt.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/34119990/pexels-photo-34119990/free-photo-of-modern-room-with-sea-view-and-red-lounge.jpeg" },
+    { "path": "public/assets/library/furniture/sleeper-sofa.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/9139179/pexels-photo-9139179.jpeg" },
+    { "path": "public/assets/library/furniture/wingback-chair.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/18448272/pexels-photo-18448272.jpeg" },
+    { "path": "public/assets/library/furniture/club-chair.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/17514601/pexels-photo-17514601.jpeg" },
+    { "path": "public/assets/library/furniture/tub-chair-alt.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/38773097/pexels-photo-38773097/free-photo-of-elegant-orange-armchair-in-modern-interior.jpeg" },
+    { "path": "public/assets/library/furniture/slipper-chair.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/5794015/pexels-photo-5794015.jpeg" },
+    { "path": "public/assets/library/furniture/accent-chair.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/39712412/pexels-photo-39712412.jpeg" },
+    { "path": "public/assets/library/furniture/dining-chair.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/36718705/pexels-photo-36718705.jpeg" },
+    { "path": "public/assets/library/furniture/dining-bench-alt.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/6186513/pexels-photo-6186513.jpeg" },
+    { "path": "public/assets/library/furniture/banquette.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/16021235/pexels-photo-16021235/free-photo-of-interior-design-of-cozy-restaurant.jpeg" },
+    { "path": "public/assets/library/furniture/ottoman-leather.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/17771969/pexels-photo-17771969/free-photo-of-brown-puff-on-concrete-floor.jpeg" },
+    { "path": "public/assets/library/furniture/footstool-tufted.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/10964021/pexels-photo-10964021.jpeg" },
+    { "path": "public/assets/library/furniture/window-seat.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/36482950/pexels-photo-36482950.jpeg" },
+    { "path": "public/assets/library/furniture/upholstered-headboard.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/7166556/pexels-photo-7166556.jpeg" },
+    { "path": "public/assets/library/furniture/bed-end-bench-alt.jpeg", "source": "Pexels", "sourceUrl": "https://images.pexels.com/photos/12845389/pexels-photo-12845389.jpeg" }
+  ]
+}

@@ -301,6 +301,7 @@ function render() {
     currentCameraStream.getTracks().forEach(track => track.stop())
     currentCameraStream = null
   }
+  try { window.XR8?.stop?.() } catch {}
   arPreview?.dispose()
   arPreview = null
   const pageKey = document.body.dataset.page
@@ -378,7 +379,7 @@ async function startCamera() {
       scriptUrl: import.meta.env.VITE_EIGHTH_WALL_SCRIPT_URL,
       onError: message => { status.textContent = `${message} Starting standard camera preview.` },
     })
-    if (XR8 && startEightWallSession({
+    if (XR8 && await startEightWallSession({
       XR8,
       canvas: document.querySelector('#xr-camera-canvas'),
       onStatus: message => { status.textContent = message },

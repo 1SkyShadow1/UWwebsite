@@ -1,8 +1,9 @@
 import http from 'node:http'
 import { randomUUID } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
 import { getR2Status } from './storage.mjs'
 
-const port = Number(process.env.API_PORT || 8787)
+const port = Number(process.env.PORT || process.env.API_PORT || 3000)
 const sessions = new Map()
 const projects = new Map()
 const previews = new Map()
@@ -33,7 +34,7 @@ function route(req) {
   return new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname
 }
 
-const server = http.createServer(async (req, res) => {
+export async function handleApiRequest(req, res) {
   try {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, { 'access-control-allow-origin': process.env.CORS_ORIGIN || '*', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type' })
@@ -91,6 +92,10 @@ const server = http.createServer(async (req, res) => {
   } catch (error) {
     return send(res, error instanceof SyntaxError ? 400 : 500, { error: error.message || 'Unexpected server error.' })
   }
-})
+}
 
-server.listen(port, () => console.log(`Upholstery Warehouse API listening on http://localhost:${port}`))
+const server = http.createServer(handleApiRequest)
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  server.listen(port, '0.0.0.0', () => console.log(`Upholstery Warehouse API listening on http://0.0.0.0:${port}`))
+}

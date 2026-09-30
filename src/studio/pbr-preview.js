@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { buildTintedPatternCanvas } from './controller.js'
 
 export function createPbrPreview(host,onStatus){
   const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true})
@@ -42,15 +43,25 @@ export function createPbrPreview(host,onStatus){
     if(disposed||token!==version){textures.forEach(t=>t?.dispose());return}
     active.forEach(t=>t?.dispose());active=textures
     if(textures[0]&&!material.preserveTextureColor){
-      const image=textures[0].image,c=document.createElement('canvas');c.width=Math.min(1024,image.width);c.height=Math.min(1024,image.height)
-      const ctx=c.getContext('2d');ctx.drawImage(image,0,0,c.width,c.height);ctx.globalCompositeOperation='color';ctx.fillStyle=material.color;ctx.fillRect(0,0,c.width,c.height)
+      const image=textures[0].image
+      const size=Math.min(512,image.width||512)
+      const c=buildTintedPatternCanvas(image,size,material)
       const tinted=new THREE.CanvasTexture(c);tinted.colorSpace=THREE.SRGBColorSpace;tinted.wrapS=tinted.wrapT=THREE.RepeatWrapping;tinted.repeat.set(repeat,repeat);tinted.center.set(.5,.5);tinted.rotation=angle;textures[0].dispose();textures[0]=tinted
     }
     ;[cloth.map,cloth.normalMap,cloth.roughnessMap]=textures
     cloth.color.set(0xffffff)
-    cloth.normalScale.set(.45,.45);cloth.roughness=cloth.roughnessMap?1:.82;cloth.metalness=0
-    cloth.sheen=/velvet|velour|fleece|wool/i.test(material.name)?.4:.12;cloth.needsUpdate=true
-    onStatus(!cloth.map?'Texture unavailable. Choose another swatch.':cloth.normalMap&&cloth.roughnessMap?'Matched base colour + normal + roughness · 1K PBR':'Colour texture + uniform matte finish · no measured depth maps')
+    const isVelvet=/velvet|velour|mohair|chenille|corduroy/i.test(`${material.texture||''} ${material.name||''}`)
+    const isLeather=/leather|vinyl/i.test(`${material.texture||''} ${material.name||''}`)
+    const isBoucle=/boucle|fleece|shearling|tweed/i.test(`${material.texture||''} ${material.name||''}`)
+    cloth.normalScale.set(isBoucle?.65:.45,isBoucle?.65:.45)
+    cloth.roughness=cloth.roughnessMap?1:isLeather?.48:isVelvet?.68:.84
+    cloth.metalness=0
+    cloth.clearcoat=isLeather?.14:0
+    cloth.clearcoatRoughness=isLeather?.45:0
+    cloth.sheen=isVelvet?.62:isBoucle?.32:.14
+    cloth.sheenColor.set(material.preserveTextureColor?0xffffff:material.color)
+    cloth.needsUpdate=true
+    onStatus(!cloth.map?'Texture unavailable. Choose another swatch.':cloth.normalMap&&cloth.roughnessMap?`${material.name} · Matched base colour + normal + roughness · 1K PBR`:`${material.name} · Surface texture study`)
   }
   const setScale=(scale,rotation)=>{repeat=390/scale;angle=rotation*Math.PI/180;active.forEach(t=>{if(t){t.repeat.set(repeat,repeat);t.rotation=angle}})}
   const setSoftness=value=>{cloth.roughness=Math.max(.2,value);cloth.sheenRoughness=Math.max(.2,value)}

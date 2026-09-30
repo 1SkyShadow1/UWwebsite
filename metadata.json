@@ -1,0 +1,7 @@
+{
+  "name": "Upholstery Showroom — Upholstery Warehouse",
+  "description": "Thoughtful upholstery, material inspiration and a digital showroom for Upholstery Warehouse.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

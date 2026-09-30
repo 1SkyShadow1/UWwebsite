@@ -12,9 +12,11 @@ export function applySurface(source, texture, mask, { strength = .88, compare = 
     if (p % width < width * compare || mask[p] <= 0) continue
     const i = p * 4, alpha = Math.min(1, mask[p]) * strength
     const light = source.data[i]*.2126 + source.data[i+1]*.7152 + source.data[i+2]*.0722
-    const shade = Math.pow(Math.max(.22, Math.min(1.65, light / Math.max(25, mean))),1.2-softness*.4)
+    const ratio = light / Math.max(25, mean)
+    const shade = Math.pow(Math.max(.22, Math.min(1.65, ratio)), 1.2 - softness * .4)
+    const sheen = ratio > 1.12 ? Math.min(26, (ratio - 1.12) * 38 * (1 - softness * .45)) : 0
     for (let c = 0; c < 3; c++) {
-      const value = showMask ? [211, 177, 111][c] : Math.min(255, texture.data[i+c] * shade)
+      const value = showMask ? [211, 177, 111][c] : Math.min(255, texture.data[i+c] * shade + sheen)
       output[i+c] = source.data[i+c]*(1-alpha) + value*alpha
     }
   }

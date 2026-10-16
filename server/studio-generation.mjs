@@ -32,7 +32,7 @@ function imageBuffer(value,label){
 const decoder=buffer=>sharp(buffer,{limitInputPixels:50_000_000,failOn:'error'})
 
 async function fabricReference(path){
-  for(const directory of ['public','dist']){
+  for(const directory of process.env.VERCEL?['server-assets']:['public','dist']){
     try{return await readFile(resolve(directory,`.${path}`))}
     catch(error){if(error.code!=='ENOENT')throw error}
   }

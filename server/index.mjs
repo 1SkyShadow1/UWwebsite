@@ -12,6 +12,8 @@ import { applyShoppingOperations, selectionDetails, validateSelection, validateS
 import { receiptFor } from './enquiries.mjs'
 import { studioForms, studioLights, materialResponse } from '../src/studio/material-response.js'
 import { createStudioGenerationService } from './studio-generation.mjs'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 
 const materialIds = new Set(materials.map(item => item.id))
 const productIds = new Set(shopProducts.map(item => item.id))
@@ -61,7 +63,7 @@ async function readJson(req,limit=bodyLimit) {
   return body
 }
 
-function ownerFor(req) {
+export function ownerFor(req) {
   const match = /^Bearer ([a-zA-Z0-9-]{32,128})$/.exec(req.headers.authorization || '')
   if (!match) throw new HttpError(401, 'A private browser key is required.')
   return createHash('sha256').update(match[1]).digest('hex')
@@ -91,7 +93,12 @@ export function createApiHandler({ database, corsOrigin = process.env.CORS_ORIGI
   const limits = new Map()
   const send = (res, status, payload) => {
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' })
-    res.end(JSON.stringify(payload))
+    const encoded=JSON.stringify(payload)
+    if(res.uwStreamJson&&encoded.length>262144){
+      const bytes=Buffer.from(encoded)
+      return pipeline(Readable.from((function*(){for(let i=0;i<bytes.length;i+=65536)yield bytes.subarray(i,i+65536)})()),res).catch(()=>{res.destroy()})
+    }
+    res.end(encoded)
   }
   return async function api(req, res) {
     try {
@@ -134,12 +141,15 @@ export function createApiHandler({ database, corsOrigin = process.env.CORS_ORIGI
 
       if(path==='/api/studio/generations'&&req.method==='POST'){
         const owner=ownerFor(req),body=await readJson(req,24_000_000)
-        return send(res,202,{data:await generationService.start(owner,body,req.headers['idempotency-key'],materials)})
+        const operation=new AbortController(),cancel=()=>operation.abort()
+        res.on?.('close',cancel)
+        try{return send(res,202,{data:await generationService.start(owner,body,req.headers['idempotency-key'],materials,{signal:operation.signal})})}
+        finally{res.removeListener?.('close',cancel)}
       }
       if(path.startsWith('/api/studio/generations/')){
         const owner=ownerFor(req),id=path.split('/').pop()
-        if(req.method==='GET')return send(res,200,{data:generationService.get(owner,id)})
-        if(req.method==='DELETE')return send(res,200,{data:generationService.cancel(owner,id)})
+        if(req.method==='GET')return send(res,200,{data:await generationService.get(owner,id)})
+        if(req.method==='DELETE')return send(res,200,{data:await generationService.cancel(owner,id)})
       }
 
       if(path==='/api/studio/designs'){

@@ -1,5 +1,6 @@
 node_modules/
 dist/
+server-assets/
 .data/
 tmp/qa/
 .env

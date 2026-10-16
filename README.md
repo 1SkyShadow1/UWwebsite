@@ -17,6 +17,8 @@ Open `http://localhost:3000`. Vite serves the frontend and API together; a secon
 
 ## Production
 
+For the existing Vercel site, see [Vercel backend setup](docs/VERCEL.md). `vercel.json` routes `/api/*` to the Node function; connect PostgreSQL storage and add `GEMINI_API_KEY` as a server-only Production environment variable. The Windows-encrypted local key stays on this computer. GitHub Pages serves only static files and cannot run this backend.
+
 ```sh
 npm run build
 npm start

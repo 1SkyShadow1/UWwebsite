@@ -12,7 +12,7 @@ export async function generateUpholstery(request,body,{signal,key,onStatus=()=>{
   const cancel=()=>{if(id)void request(`/api/studio/generations/${id}`,{method:'DELETE'}).catch(()=>{})}
   signal?.addEventListener('abort',cancel,{once:true})
   try{
-    let job=await request('/api/studio/generations',{method:'POST',body,signal,timeoutMs:60000,headers:{'Idempotency-Key':key}})
+    let job=await request('/api/studio/generations',{method:'POST',body,signal,timeoutMs:285000,headers:{'Idempotency-Key':key}})
     id=job.id
     if(signal?.aborted){cancel();throw signal.reason}
     const start=Date.now()
@@ -44,7 +44,12 @@ export function generationInputs(photo,mask,maskWidth,maskHeight){
   source.getContext('2d').drawImage(photo,0,0,source.width,source.height)
   const small=selectionMaskCanvas(mask,maskWidth,maskHeight),maskCanvas=document.createElement('canvas');maskCanvas.width=source.width;maskCanvas.height=source.height
   maskCanvas.getContext('2d').drawImage(small,0,0,source.width,source.height)
-  return {imageData:source.toDataURL('image/png'),maskData:maskCanvas.toDataURL('image/png')}
+  const maskData=maskCanvas.toDataURL('image/png')
+  for(const quality of [.94,.86,.76]){
+    const imageData=source.toDataURL('image/jpeg',quality)
+    if(imageData.length+maskData.length<3_900_000)return {imageData,maskData}
+  }
+  throw new Error('This photograph is too detailed for the hosted upload limit. Use a smaller or more tightly cropped photograph.')
 }
 
 export function compositeAiResult(context,source,result,mask,width,height){

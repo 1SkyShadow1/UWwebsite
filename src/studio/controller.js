@@ -263,7 +263,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
       const capabilities=await request('/api/studio/capabilities',{signal})
       if(disposed)return
       generationConnected=Boolean(capabilities.generation?.configured)
-      if(!generationPending&&!generated)$('generation-status').textContent=generationConnected?(capabilities.generation.provider+' editing is connected. Select the upholstery and generate a clean fabric change.'):'AI editing is not connected yet. The local connection page can save your API key without editing .env.'
+      if(!generationPending&&!generated)$('generation-status').textContent=generationConnected?(capabilities.generation.provider+' editing is connected. Select the upholstery and generate a clean fabric change.'):(capabilities.generation?.setupMessage || 'AI editing is not connected yet. The local connection page can save your API key without editing .env.')
     }catch{if(!disposed)$('generation-status').textContent='The AI connection could not be checked. Refresh the connection to retry.'}
     finally{if(!disposed){$('check-ai').disabled=false;updateControls()}}
   }

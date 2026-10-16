@@ -25,6 +25,7 @@ export function openDatabase(path = process.env.UW_DB_PATH || resolve('.data', '
   const record = db.prepare('SELECT owner, payload FROM records WHERE kind=? AND id=?')
   const remove = db.prepare('DELETE FROM records WHERE kind=? AND id=? AND owner=?')
   return {
+    exportRecords() { return db.prepare('SELECT kind,id,owner,payload,created_at FROM records').all().map(row=>({...row,payload:JSON.parse(row.payload)})) },
     put(kind, id, owner, payload) { put.run(kind, id, owner, JSON.stringify(payload), payload.updatedAt || payload.createdAt || new Date().toISOString()); return payload },
     get(kind, id, owner) { const row = get.get(kind, id, owner); return row ? JSON.parse(row.payload) : null },
     list(kind, owner) { return list.all(kind, owner).map(row => JSON.parse(row.payload)) },

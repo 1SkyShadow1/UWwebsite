@@ -2,6 +2,14 @@
 
 Latest local review: 16 October 2026.
 
+## Vercel API routes and persistence — 16 October 2026
+
+- Added a Vercel Node entry point and `/api/*` rewrite for capabilities, selections, shortlist and the other shared API routes. The prior Vite-only deployment had no server function.
+- Added PostgreSQL-backed owner repositories with transaction/row-lock protection. Tests run a real embedded PostgreSQL engine and verify persistence across independent handlers, owner isolation, rollback and duplicate-safe quantities.
+- Hosted AI jobs use a durable claim before provider work and persist temporary results for retries on another function instance. Generation completion is awaited within the request; large JSON responses are streamed. Uploads are compressed below the hosted request limit. Quotas, cancellation, expiry and cached results are tested without paid API calls.
+- All 62 tests pass; production build passes with 83 modules; the asset check has 237 references and no missing assets. Server deployment prepares only the 50 required fabric references and excludes local keys, databases and browser model/runtime bundles.
+- Hosted operation still requires a PostgreSQL URL and the server-only Google key in Vercel Production environment variables, followed by redeployment. Local encrypted Windows credentials are not transferred. See `docs/VERCEL.md` for the dashboard steps. No live provider generation or cloud database connection was tested locally.
+
 ## Google connection — 16 October 2026
 
 - Added a Google-specific encrypted connection form and Gemini image-edit adapter, with provider-tagged credentials and per-job provider routing. Legacy OpenAI credentials remain supported. Google defaults to 1K to limit cost.

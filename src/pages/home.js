@@ -1,24 +1,34 @@
-export function renderHome({ linkButton, media }) {
+import { roomEdits } from '../data/discovery.js'
+
+export function renderHome({ materials, state, shopProducts, shopProductCard }) {
+  const edit = ['boucle', 'linen', 'velvet', 'leather'].map(id => materials.find(item => item.id === id)).filter(Boolean)
+  const textileImage = edit.find(item => item.id === 'linen').image
   return `
-    <section class="stitch-hero">
-      <div class="hero-backdrop"></div><div class="hero-glow"></div>
-      <div class="hero-content">
-        <p class="hero-overline">UPHOLSTERY WAREHOUSE / JOHANNESBURG</p>
-        <h1>Keep what you love.<br><strong>Make it yours again.</strong></h1>
-        <p class="hero-lede">Thoughtful upholstery for furniture with more life in it. Explore materials, imagine a new finish and find the right next step for your piece.</p>
-        <div class="hero-actions">${linkButton('Explore the material library', '/materials.html', 'gold')}${linkButton('See what is possible', '/services.html', 'ghost')}</div>
-        <div class="hero-scroll-cue"><span></span> SCROLL TO EXPLORE</div>
-      </div>
+    <section class="atelier-hero">
+      <div class="atelier-hero-copy"><p class="spec-label"><span class="tiny-rule"></span> ALL THINGS UPHOLSTERY</p><h1>A new chapter.<br><em>Same good bones.</em></h1><p>For the chair you inherited. The sofa you sink into. The space you’re making your own. Discover a new favourite, or give the one you love another story.</p><div class="atelier-actions"><a class="button gold" href="/catalogue.html">Shop the collection <span>↗</span></a><a class="text-link" href="/estimator.html">Reimagine your piece <span>↗</span></a></div><div class="hero-footnote"><span>FURNITURE / FABRIC / CRAFT</span><a href="#discover">A little inspiration ↓</a></div></div>
+      <div class="atelier-hero-visual"><img id="home-mood-image" src="/assets/lounge-editorial.jpg" alt="A cognac leather sofa with warm natural character" fetchpriority="high" decoding="async"><span class="hero-image-caption">A STUDY IN COMFORT</span><div class="hero-material-note"><span class="material-dot" style="--dot:#8c5835"></span><div><small>THE CURRENT MOOD</small><strong id="home-mood-label">Warm & natural</strong></div><a id="home-mood-link" href="/ai-studio.html?material=leather" aria-label="Try this material mood in the studio">↗</a></div></div>
     </section>
-    <section class="section pathways">
-      <div class="section-heading"><div><p class="spec-label gold-text">A GOOD PLACE TO BEGIN</p><h2>What are you dreaming up?</h2></div><p>From one well-loved chair to a complete room, start wherever you are.</p></div>
-      <div class="path-grid">${[
-        ['/materials.html','Find your material','Explore upholstery textures, colour and care.','/assets/textile-editorial.jpg'],
-        ['/ai-studio.html','Try a new direction','Preview colour and finish on your own furniture photo.','/assets/sofa-editorial.jpg'],
-        ['/services.html','Restore or remake','Discover upholstery services and ways to work together.','/assets/stitch/stitch-craftsman.png'],
-        ['/estimator.html','Plan your project','Build an early brief before a consultation.','/assets/sofa-editorial.jpg'],
-      ].map(([path,title,copy,image]) => `<a class="path-card path-card-image" href="${path}"><img src="${image}" alt="" loading="lazy"><span class="path-card-shade"></span><div><h3>${title}</h3><p>${copy}</p><span class="path-link">EXPLORE ↗</span></div></a>`).join('')}</div>
-    </section>
-    <section class="section home-editorial"><div class="home-editorial-copy"><p class="spec-label gold-text">MADE TO BE LIVED WITH</p><h2>Good bones.<br><strong>Better layers.</strong></h2><p>A familiar shape can feel entirely new with the right fabric, thoughtful making and the details that bring it all together.</p>${linkButton('Meet the workshop', '/services.html', 'gold')}</div><div class="home-editorial-image">${media('/assets/interior-editorial.jpg','A considered living room with tactile upholstery')}</div></section>
-    <section class="home-material-callout"><img src="/assets/textile-editorial.jpg" alt="Close-up of upholstery textile texture" loading="lazy"><div><p class="spec-label">FEEL FIRST. DECIDE WITH CONFIDENCE.</p><h2>Texture changes<br>everything.</h2><a class="text-link" href="/materials.html">Enter the material library ↗</a></div></section>`
+    <div class="mood-rail"><span>A DIFFERENT FEEL, A DIFFERENT STORY.</span><div role="group" aria-label="Choose an inspiration mood"><button type="button" data-home-mood="leather" aria-pressed="true"><i style="background:#996543"></i>Warm & natural</button><button type="button" data-home-mood="velvet" aria-pressed="false"><i style="background:#355e50"></i>Deep & expressive</button><button type="button" data-home-mood="boucle" aria-pressed="false"><i style="background:#c1b7a2"></i>Soft & sculptural</button></div><small>INSPIRATION / NOT A FINISHED PROJECT</small></div>
+
+    <div class="showroom-paths"><a href="/catalogue.html"><span>01 / FIND A PIECE</span><strong>${shopProducts.length} considered favourites <b>↗</b></strong></a><button type="button" data-open-finder><span>02 / FIND A FEELING</span><strong>Your fabric, with a little guidance <b>↗</b></strong></button><a href="/ai-studio.html"><span>03 / SEE THE POSSIBILITY</span><strong>Try a surface on your own furniture <b>↗</b></strong></a></div>
+
+    <section class="section room-edit"><div class="section-heading"><div><p class="spec-label">THE SPACES THAT MAKE A HOME</p><h2>A place for<br><em>every kind of living.</em></h2></div><a class="text-link" href="/catalogue.html">Explore the collection ↗</a></div><div class="room-edit-grid">${roomEdits.map(edit => { const item = shopProducts.find(product => product.id === edit.productId); return `<a class="room-edit-card" href="/catalogue.html?category=${encodeURIComponent(edit.category)}#shop-collection"><div><img src="${item.image}" alt="Illustrative furniture inspiration for ${edit.name.toLowerCase()}" loading="lazy"><span>Explore ${shopProducts.filter(product => product.category === edit.category).length} pieces ↗</span></div><h3>${edit.name}</h3><p>${edit.note}</p></a>` }).join('')}</div></section>
+
+    <section class="section store-featured"><div class="section-heading"><div><p class="spec-label">THE PIECES WE’RE DRAWN TO</p><h2>Good form.<br><em>Great company.</em></h2></div><p>A curve, a texture, a useful detail.<br>Meet four pieces from our current edit.</p></div><div class="store-featured-grid">${['alba-swivel','porter-two','archer-coffee','paralla-ottoman'].map(id => shopProducts.find(item => item.id === id)).map(shopProductCard).join('')}</div><p class="quiet-caption">Illustrative images and reference prices. Confirm the exact piece with the supplier.</p></section>
+
+    <section class="section atelier-discover" id="discover"><div class="section-heading"><div><p class="spec-label">YOUR IDEA. YOUR STARTING POINT.</p><h2>There’s more than one<br><em>way to make it yours.</em></h2></div><p>Keep the things you love. Find the things you’ll love next. We’ll help you bring it all together.</p></div><div class="discovery-grid">
+      <a class="discovery-card" href="/services.html"><div><img src="/assets/chair-editorial.jpg" alt="An upholstered accent chair" loading="lazy"><span>01 / RESTORE</span></div><h3>Old favourite. New feeling. <b>↗</b></h3><p>Reupholstery, repair and the details worth keeping.</p></a>
+      <a class="discovery-card" href="/materials.html"><div><img src="${textileImage}" alt="The texture of woven upholstery cloth" loading="lazy"><span>02 / DISCOVER</span></div><h3>Find your kind of texture. <b>↗</b></h3><p>Explore ${materials.length} surface directions, one swatch at a time.</p></a>
+      <a class="discovery-card" href="/catalogue.html"><div><img src="/assets/products/diane-swivel.webp" alt="A sculptural swivel chair, illustrative product reconstruction" loading="lazy"><span>03 / COLLECT</span></div><h3>A piece that feels like you. <b>↗</b></h3><p>A considered furniture edit for the way you live.</p></a>
+    </div></section>
+
+    <section class="atelier-material-edit section"><div class="section-heading"><div><p class="spec-label">THE MATERIAL EDIT / VOL. 01</p><h2>Colour is only<br><em>half the story.</em></h2></div><button class="text-link" type="button" data-open-finder>Help me find my fabric ↗</button></div><div class="home-textile-grid">${edit.map((item, index) => `<article class="home-textile"><a href="/ai-studio.html?material=${item.id}"><div class="home-textile-image" style="--textile-color:${item.color}"><img src="${item.image}" alt="${item.imageAlt}" loading="lazy"><span>${String(index + 1).padStart(2, '0')} / ${item.shade}</span><i aria-hidden="true">↗</i></div></a><div><h3>${item.name}</h3><button type="button" data-save-swatch="${item.id}" aria-label="Save ${item.name}" ${state.swatches.includes(item.id) ? 'class="saved"' : ''}>${state.swatches.includes(item.id) ? 'Saved ✓' : '+ Save'}</button></div><p>${item.feel}</p></article>`).join('')}</div><p class="material-edit-note">Illustrative material studies. Your final choice deserves a physical sample.</p></section>
+
+    <section class="home-studio-story"><div class="home-studio-image"><img src="/assets/sofa-editorial.jpg" alt="Emerald upholstered sofa as a material inspiration" loading="lazy"><span>YOUR PIECE. A FRESH PERSPECTIVE.</span></div><div><p class="spec-label">THE MATERIAL STUDIO</p><h2>See the possibility.<br><em>Before the commitment.</em></h2><p>Bring your furniture into the picture. Upload a photo, select its surface and explore a different material with our on-device preview studio.</p><a class="button gold" href="/ai-studio.html">Try it on your furniture <span>↗</span></a><small>Photos stay on your device. Previews are a starting point.</small></div></section>
+
+    <section class="section atelier-process"><div><p class="spec-label">FROM “WHAT IF” TO WHAT’S NEXT</p><h2>A thoughtful start.<br><em>A better outcome.</em></h2><a class="text-link" href="/estimator.html">Build your project brief ↗</a></div><div class="atelier-process-steps"><article><span>01</span><div><h3>Make a little room for ideas.</h3><p>Explore surfaces, save the ones you love and compare their character.</p></div></article><article><span>02</span><div><h3>Tell us about your piece.</h3><p>Use the planner for furniture, quantity, material direction and your notes.</p></div></article><article><span>03</span><div><h3>Bring the details together.</h3><p>Send your brief to start a conversation. Confirm the scope and an exact sample after assessment.</p></div></article></div></section>
+
+    <section class="section recently-viewed" data-recent-products hidden></section>
+    <section class="atelier-invitation"><p class="spec-label">SOME THINGS ARE WORTH KEEPING.</p><h2>Let’s make something<br><em>you’ll love living with.</em></h2><a class="button gold" href="/contact.html">Start a conversation <span>↗</span></a></section>
+  `
 }

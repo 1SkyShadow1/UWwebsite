@@ -1,0 +1,6 @@
+{
+  "source": "https://huggingface.co/onnx-community/depth-anything-v2-small",
+  "license": "Apache-2.0",
+  "sha256": "fcf51f1b230362b28690bb9d1809bf0431f29cad20534e3f589bd7285547f20d",
+  "bytes": 27258801
+}

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import sharp from 'sharp'
-import {applySurface,brushMask} from '../src/studio/compositor.js'
+import {applySurface,brushMask,buildIllumination} from '../src/studio/compositor.js'
 import {unpackCameraPixels} from '../src/studio/eightwall.js'
 import {materials} from '../src/data/materials.js'
 import {shopProducts} from '../src/data/shop-products.js'
@@ -19,6 +19,23 @@ test('comparison slider returns exact original at 100% and splits at midpoint',(
 test('brush and eraser operate only inside the selected radius',()=>{
  const mask=new Float32Array(100);brushMask(mask,10,10,5,5,2);assert.equal(mask[55],1);assert.equal(mask[0],0)
  brushMask(mask,10,10,5,5,1,true);assert.equal(mask[55],0)
+})
+test('softened source lighting reduces a repeating print while retaining a broad light gradient',()=>{
+ const width=160,height=40,data=new Uint8ClampedArray(width*height*4)
+ for(let y=0;y<height;y++)for(let x=0;x<width;x++){const p=(y*width+x)*4,v=80+x*.45+(x%4<2?45:-45);data.set([v,v,v,255],p)}
+ const photo={width,height,data},light=buildIllumination(photo,new Float32Array(width*height).fill(1))
+ const middle=20*width
+ assert.ok(Math.abs(light[middle+80]-light[middle+82])<15)
+ assert.ok(light[middle+120]-light[middle+40]>25)
+})
+test('lighting estimates exclude the surrounding room and preserve unselected pixels exactly',()=>{
+ const width=12,height=12,data=new Uint8ClampedArray(width*height*4),mask=new Float32Array(width*height)
+ for(let y=0;y<height;y++)for(let x=0;x<width;x++){const p=y*width+x,inside=x>=4&&x<8&&y>=4&&y<8;data.set([inside?80:240,inside?80:240,inside?80:240,255],p*4);mask[p]=inside?1:0}
+ const photo={width,height,data},surface={width,height,data:new Uint8ClampedArray(width*height*4)}
+ for(let p=0;p<width*height;p++)surface.data.set([160,40,20,255],p*4)
+ const light=buildIllumination(photo,mask,3),out=applySurface(photo,surface,mask,{strength:1,lighting:light})
+ assert.deepEqual([...out.slice(0,4)],[240,240,240,255])
+ assert.deepEqual([...out.slice((4*width+4)*4,(4*width+4)*4+4)],[160,40,20,255])
 })
 test('8th Wall row padding never enters RGBA image',()=>{
  const result=unpackCameraPixels({pixels:new Uint8Array([1,2,3,4,99,99,5,6,7,8,99,99]),rows:2,cols:1,rowBytes:6})

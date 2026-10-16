@@ -5,6 +5,7 @@ import { handleApiRequest } from './server/index.mjs'
 
 export default defineConfig({
   server: {
+    watch: { ignored:['**/*.wasm','**/*.onnx','**/*.tflite'] },
     host: '0.0.0.0',
     port: 3000,
     allowedHosts: true,
@@ -12,6 +13,12 @@ export default defineConfig({
   plugins: [
     {
       name: 'upholstery-warehouse-api',
+      configurePreviewServer(server) {
+        server.middlewares.use((req, res, next) => {
+          if ((req.url || '').startsWith('/api/')) return handleApiRequest(req, res)
+          next()
+        })
+      },
       configureServer(server) {
         server.middlewares.use((req, res, next) => {
           const urlPath = (req.url || '').split('?')[0]

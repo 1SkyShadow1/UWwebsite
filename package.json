@@ -4,20 +4,30 @@
   "type": "module",
   "version": "1.0.0",
   "scripts": {
-    "dev": "vite --host 0.0.0.0 --port 3000",
-    "api": "node server/index.mjs",
+    "dev": "node --env-file-if-exists=.env node_modules/vite/bin/vite.js --host 0.0.0.0 --port 3000",
+    "api": "node --env-file-if-exists=.env server/index.mjs",
+    "start": "node --env-file-if-exists=.env server/app.mjs",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 3000",
-    "test:studio": "node --test tests/studio.test.mjs",
-    "prebuild": "node scripts/sync-studio-runtime.mjs"
+    "test:studio": "node --test tests/studio*.test.mjs",
+    "prepare:studio": "node scripts/prepare-studio-assets.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check:assets": "node scripts/check-assets.mjs",
+    "inbox": "node --env-file-if-exists=.env scripts/enquiry-inbox.mjs",
+    "prebuild": "node scripts/sync-studio-runtime.mjs",
+    "configure:ai": "node server/configure-ai.mjs"
+  },
+  "engines": {
+    "node": ">=24"
   },
   "dependencies": {
     "@8thwall/engine": "^0.1.0",
+    "@huggingface/transformers": "4.3.1",
     "@mediapipe/tasks-vision": "^0.10.32",
-    "three": "^0.178.0"
+    "three": "^0.178.0",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
-    "sharp": "^0.35.5",
     "vite": "^6.1.0"
   }
 }

@@ -1,4 +1,5 @@
 // Served as a classic worker: the WASM loader uses importScripts.
+import { chooseConsistentMasks } from './selection.js'
 importScripts('/vendor/mediapipe/vision_bundle.js')
 const { FilesetResolver, InteractiveSegmenter } = vision
 let segmenterPromise
@@ -37,10 +38,13 @@ function sampleNeighborhood(arr, width, height, nx, ny) {
 }
 
 self.onmessage = async ({ data }) => {
-  const { id, bitmap, point } = data
+  const { id, bitmap, point, automatic } = data
   try {
     const segmenter = await getSegmenter()
-    const result = segmenter.segment(bitmap, { keypoint: point })
+    const candidates=automatic?[point,{x:.5,y:.7},{x:.38,y:.58},{x:.25,y:.76}]:[point]
+    const results=[]
+    for(const candidate of candidates){
+    const result = segmenter.segment(bitmap, { keypoint: candidate })
     const masks = result.confidenceMasks || []
     if (!masks.length) throw new Error('The selection model returned no mask.')
     let chosen = masks[1] || masks[0]
@@ -48,8 +52,8 @@ self.onmessage = async ({ data }) => {
     if (masks.length >= 2 && masks[0] && masks[1]) {
       const arr0 = masks[0].getAsFloat32Array()
       const arr1 = masks[1].getAsFloat32Array()
-      const score0 = sampleNeighborhood(arr0, masks[0].width, masks[0].height, point.x, point.y)
-      const score1 = sampleNeighborhood(arr1, masks[1].width, masks[1].height, point.x, point.y)
+      const score0 = sampleNeighborhood(arr0, masks[0].width, masks[0].height, candidate.x, candidate.y)
+      const score1 = sampleNeighborhood(arr1, masks[1].width, masks[1].height, candidate.x, candidate.y)
       if (score0 > score1 + 0.1) {
         chosen = masks[0]
         chosenArr = arr0
@@ -62,7 +66,10 @@ self.onmessage = async ({ data }) => {
     const width = chosen.width
     const height = chosen.height
     result.close()
-    self.postMessage({ id, width, height, values }, [values.buffer])
+    results.push({width,height,values,point:candidate})
+    }
+    const best=chooseConsistentMasks(results)
+    self.postMessage({ id,...best }, [best.values.buffer])
   } catch (error) {
     self.postMessage({ id, error: error.message || 'Selection failed' })
   } finally {

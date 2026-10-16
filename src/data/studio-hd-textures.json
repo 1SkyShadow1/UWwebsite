@@ -1,0 +1,26 @@
+{
+  "/assets/textures/brown_leather.jpg": {
+    "source": "https://polyhaven.com/a/brown_leather",
+    "license": "CC0",
+    "resolution": 2048,
+    "color": "/assets/studio-hd/brown_leather-color.jpg",
+    "normal": "/assets/studio-hd/brown_leather-normal.jpg",
+    "roughness": "/assets/studio-hd/brown_leather-roughness.jpg"
+  },
+  "/assets/textures/velour_velvet.jpg": {
+    "source": "https://polyhaven.com/a/velour_velvet",
+    "license": "CC0",
+    "resolution": 2048,
+    "color": "/assets/studio-hd/velour_velvet-color.jpg",
+    "normal": "/assets/studio-hd/velour_velvet-normal.jpg",
+    "roughness": "/assets/studio-hd/velour_velvet-roughness.jpg"
+  },
+  "/assets/textures/rough_linen.jpg": {
+    "source": "https://polyhaven.com/a/rough_linen",
+    "license": "CC0",
+    "resolution": 2048,
+    "color": "/assets/studio-hd/rough_linen-color.jpg",
+    "normal": "/assets/studio-hd/rough_linen-normal.jpg",
+    "roughness": "/assets/studio-hd/rough_linen-roughness.jpg"
+  }
+}

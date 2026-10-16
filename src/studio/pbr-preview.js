@@ -1,70 +1,98 @@
 import * as THREE from 'three'
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { buildTintedPatternCanvas } from './controller.js'
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+import { buildUpholsteryForm, disposeForm } from './upholstery-forms.js'
+import { materialResponse, studioLights, exportSize } from './material-response.js'
+import { loadMaterialImages } from './texture.js'
 
-export function createPbrPreview(host,onStatus){
-  const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true})
+export function createPbrPreview(host,onStatus,{onContextLost=()=>{}}={}) {
+  const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,preserveDrawingBuffer:true})
   renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.outputColorSpace=THREE.SRGBColorSpace
-  renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.25
+  renderer.toneMapping=THREE.AgXToneMapping;renderer.toneMappingExposure=.9
+  renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap
   host.appendChild(renderer.domElement)
-  renderer.domElement.setAttribute('aria-label','Rotatable generic sofa material study. Drag to rotate; scroll to zoom.')
-  const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(38,1,.1,40)
-  camera.position.set(3,2.3,4.6)
-  const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,.65,0)
-  controls.enableDamping=true;controls.enablePan=false;controls.minDistance=2.2;controls.maxDistance=7;controls.maxPolarAngle=Math.PI*.48
-  scene.add(new THREE.HemisphereLight(0xfff0d9,0x6b777a,2.4))
-  const key=new THREE.DirectionalLight(0xffefdb,4);key.position.set(-3,4,3);scene.add(key)
-  const fill=new THREE.DirectionalLight(0xb7d9e8,2);fill.position.set(3,2,-2);scene.add(fill)
-  const cloth=new THREE.MeshPhysicalMaterial({color:0xffffff,roughness:.85,metalness:0,sheen:.3,sheenColor:0xffffff,sheenRoughness:.7})
-  const meshes=[]
-  const box=(w,h,d,x,y,z,r=.12)=>{const mesh=new THREE.Mesh(new RoundedBoxGeometry(w,h,d,3,r),cloth);mesh.position.set(x,y,z);scene.add(mesh);meshes.push(mesh)}
-  box(2.7,.35,1.1,0,.4,0);box(2.6,.8,.28,0,.95,-.4)
-  box(.3,.72,1.1,-1.24,.68,0);box(.3,.72,1.1,1.24,.68,0)
-  for(const x of [-.54,.54]){box(1.04,.22,.87,x,.68,.06,.09);box(1.04,.53,.22,x,1.03,-.22,.1)}
-  const legMat=new THREE.MeshStandardMaterial({color:0x514435,roughness:.5})
-  for(const x of [-1.05,1.05])for(const z of [-.35,.35]){const leg=new THREE.Mesh(new THREE.CylinderGeometry(.055,.045,.28,12),legMat);leg.position.set(x,.14,z);scene.add(leg);meshes.push(leg)}
-  const floorMat=new THREE.MeshStandardMaterial({color:0x333b33,roughness:1})
-  const floor=new THREE.Mesh(new THREE.CircleGeometry(3.4,64),floorMat);floor.rotation.x=-Math.PI/2;floor.position.y=-.01;scene.add(floor);meshes.push(floor)
-  let active=[],version=0,disposed=false,frame,repeat=3,angle=0
-  const resize=()=>{const width=host.clientWidth,height=host.clientHeight;if(!width||!height)return;renderer.setSize(width,height,false);camera.aspect=width/height;camera.updateProjectionMatrix()}
-  const observer=new ResizeObserver(resize);observer.observe(host);resize()
-  const load=async(url,color=false)=>{
-    const texture=await new THREE.TextureLoader().loadAsync(url)
-    if(color)texture.colorSpace=THREE.SRGBColorSpace
-    texture.wrapS=texture.wrapT=THREE.RepeatWrapping;texture.repeat.set(repeat,repeat);texture.center.set(.5,.5);texture.rotation=angle
-    texture.anisotropy=Math.min(4,renderer.capabilities.getMaxAnisotropy());return texture
+  renderer.domElement.setAttribute('aria-label','3D upholstery study. Drag to rotate, pinch or scroll to zoom.')
+  const scene=new THREE.Scene();scene.background=new THREE.Color('#111111')
+  const camera=new THREE.PerspectiveCamera(37,1,.05,60)
+  const controls=new OrbitControls(camera,renderer.domElement)
+  controls.enableDamping=true;controls.enablePan=false;controls.minDistance=1;controls.maxDistance=9;controls.maxPolarAngle=Math.PI*.495
+  const generator=new THREE.PMREMGenerator(renderer),room=new RoomEnvironment()
+  const environment=generator.fromScene(room,.04);scene.environment=environment.texture;room.dispose();generator.dispose()
+  const ambient=new THREE.HemisphereLight(0xffffff,0x383838,.6);scene.add(ambient)
+  const key=new THREE.DirectionalLight(0xffffff,4);key.castShadow=true;key.shadow.mapSize.set(2048,2048);key.shadow.camera.left=-4;key.shadow.camera.right=4;key.shadow.camera.top=4;key.shadow.camera.bottom=-4;key.shadow.normalBias=.025;key.shadow.bias=-.0002;key.shadow.radius=4;scene.add(key)
+  const fill=new THREE.DirectionalLight(0xe6edff,.3);fill.position.set(3,2,-3);scene.add(fill)
+  const cloth=new THREE.MeshPhysicalMaterial({color:0xffffff,roughness:.8,metalness:0})
+  const piping=new THREE.MeshPhysicalMaterial({color:0xc6c6c6,roughness:.85})
+  const timber=new THREE.MeshStandardMaterial({color:0x563d2b,roughness:.5})
+  const metal=new THREE.MeshStandardMaterial({color:0x242424,roughness:.3,metalness:.65})
+  const floorMaterial=new THREE.MeshStandardMaterial({color:0x080808,roughness:.9})
+  const floor=new THREE.Mesh(new THREE.PlaneGeometry(200,200),floorMaterial);floor.rotation.x=-Math.PI/2;floor.position.y=-.012;floor.receiveShadow=true;scene.add(floor)
+  let model,active=[],version=0,disposed=false,capturing=false,frame,currentLight=studioLights[0],modelId='tailored-sofa'
+  const resetView=()=>{
+    const bounds=new THREE.Box3().setFromObject(model),size=bounds.getSize(new THREE.Vector3()),center=bounds.getCenter(new THREE.Vector3())
+    const distance=Math.max(size.x,size.y,size.z)*1.65
+    controls.target.set(center.x,center.y*.85,center.z)
+    camera.position.set(center.x+distance*.8,center.y+distance*.52,center.z+distance)
+    camera.lookAt(controls.target);controls.update()
   }
-  async function setMaterial(material){
-    const token=++version;onStatus('Loading the selected surface…')
-    const maps=material.pbr
-    const results=await Promise.allSettled([load(material.textureImage||material.image,true),maps?.normal?load(maps.normal):null,maps?.roughness?load(maps.roughness):null])
-    const textures=results.map(r=>r.status==='fulfilled'?r.value:null)
-    if(disposed||token!==version){textures.forEach(t=>t?.dispose());return}
-    active.forEach(t=>t?.dispose());active=textures
-    if(textures[0]&&!material.preserveTextureColor){
-      const image=textures[0].image
-      const size=Math.min(512,image.width||512)
-      const c=buildTintedPatternCanvas(image,size,material)
-      const tinted=new THREE.CanvasTexture(c);tinted.colorSpace=THREE.SRGBColorSpace;tinted.wrapS=tinted.wrapT=THREE.RepeatWrapping;tinted.repeat.set(repeat,repeat);tinted.center.set(.5,.5);tinted.rotation=angle;textures[0].dispose();textures[0]=tinted
+  const setForm=id=>{
+    const next=buildUpholsteryForm(id,{cloth,piping,timber,metal})
+    if(model)disposeForm(model)
+    model=next;modelId=id;scene.add(model);host.dataset.form=id;resetView()
+  }
+  const setLight=id=>{
+    const next=studioLights.find(item=>item.id===id)
+    if(!next)throw new Error('Choose a supported lighting environment.')
+    currentLight=next;key.color.setHex(next.color);key.intensity=next.intensity;key.position.set(...next.position)
+    scene.environmentIntensity=next.environment;ambient.intensity=next.id==='evening'?.3:.6
+    host.dataset.lighting=id
+  }
+  const makeTexture=(image,color=false)=>{
+    if(!image)return null
+    const texture=new THREE.Texture(image);texture.needsUpdate=true;texture.colorSpace=color?THREE.SRGBColorSpace:THREE.NoColorSpace
+    texture.wrapS=texture.wrapT=THREE.RepeatWrapping;texture.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy())
+    return texture
+  }
+  async function setMaterial(material,images) {
+    const token=++version;onStatus('Preparing the fabric, grain and light response…')
+    const loaded=images || await loadMaterialImages(material)
+    if(disposed||token!==version)return
+    const textures=[makeTexture(loaded.color,true),makeTexture(loaded.normal),makeTexture(loaded.roughness)]
+    active.forEach(texture=>texture?.dispose());active=textures
+    const response=materialResponse(material)
+    for(const texture of textures)texture?.repeat.setScalar(1/response.tileMetres)
+    for(const target of [cloth,piping]){
+      [target.map,target.normalMap,target.roughnessMap]=textures
+      target.color.set(target===cloth?0xffffff:0xd2d2d2)
+      target.roughness=response.roughness;target.sheen=response.sheen*(target===cloth?1:.6);target.sheenRoughness=response.sheenRoughness
+      target.sheenColor.set(material.preserveTextureColor?0xd0d0d0:material.color).lerp(new THREE.Color(0xffffff),.18);target.clearcoat=response.clearcoat;target.clearcoatRoughness=response.roughness
+      target.anisotropy=response.anisotropy;target.anisotropyRotation=Math.PI/2;target.metalness=0;target.ior=response.ior
+      target.normalScale.setScalar(response.relief);target.needsUpdate=true
     }
-    ;[cloth.map,cloth.normalMap,cloth.roughnessMap]=textures
-    cloth.color.set(0xffffff)
-    const isVelvet=/velvet|velour|mohair|chenille|corduroy/i.test(`${material.texture||''} ${material.name||''}`)
-    const isLeather=/leather|vinyl/i.test(`${material.texture||''} ${material.name||''}`)
-    const isBoucle=/boucle|fleece|shearling|tweed/i.test(`${material.texture||''} ${material.name||''}`)
-    cloth.normalScale.set(isBoucle?.65:.45,isBoucle?.65:.45)
-    cloth.roughness=cloth.roughnessMap?1:isLeather?.48:isVelvet?.68:.84
-    cloth.metalness=0
-    cloth.clearcoat=isLeather?.14:0
-    cloth.clearcoatRoughness=isLeather?.45:0
-    cloth.sheen=isVelvet?.62:isBoucle?.32:.14
-    cloth.sheenColor.set(material.preserveTextureColor?0xffffff:material.color)
-    cloth.needsUpdate=true
-    onStatus(!cloth.map?'Texture unavailable. Choose another swatch.':cloth.normalMap&&cloth.roughnessMap?`${material.name} · Matched base colour + normal + roughness · 1K PBR`:`${material.name} · Surface texture study`)
+    host.dataset.material=material.id;host.dataset.response=response.family
+    onStatus(`${material.name} · ${response.label} · ${loaded.normal&&loaded.roughness?'Matched colour, normal & roughness maps':'Colour texture with estimated material response'}`)
   }
-  const setScale=(scale,rotation)=>{repeat=390/scale;angle=rotation*Math.PI/180;active.forEach(t=>{if(t){t.repeat.set(repeat,repeat);t.rotation=angle}})}
-  const setSoftness=value=>{cloth.roughness=Math.max(.2,value);cloth.sheenRoughness=Math.max(.2,value)}
-  const render=()=>{if(disposed)return;controls.update();if(!document.hidden)renderer.render(scene,camera);frame=requestAnimationFrame(render)};render()
-  return {setMaterial,setScale,setSoftness,dispose(){disposed=true;version++;cancelAnimationFrame(frame);observer.disconnect();controls.dispose();active.forEach(t=>t?.dispose());meshes.forEach(m=>m.geometry.dispose());cloth.dispose();legMat.dispose();floorMat.dispose();renderer.dispose();renderer.domElement.remove()}}
+  const resize=()=>{if(disposed)return;const width=host.clientWidth,height=host.clientHeight;if(!width||!height)return;renderer.setSize(width,height,false);camera.aspect=width/height;camera.updateProjectionMatrix()}
+  const observer=new ResizeObserver(resize);observer.observe(host)
+  const lostHandler=event=>{event.preventDefault();cancelAnimationFrame(frame);onContextLost()}
+  renderer.domElement.addEventListener('webglcontextlost',lostHandler)
+  setForm(modelId);setLight(currentLight.id);resize()
+  const render=()=>{if(disposed)return;if(!capturing&&!document.hidden&&host.clientWidth){controls.update();renderer.render(scene,camera)}frame=requestAnimationFrame(render)};render()
+  return {
+    setMaterial,setForm,setLight,resetView,
+    setTurntable(value){controls.autoRotate=Boolean(value);controls.autoRotateSpeed=.65},
+    async capture(quality='4k'){
+      if(disposed)throw new Error('Open the 3D studio before exporting.')
+      const size=exportSize(16,9,quality,Math.min(renderer.capabilities.maxTextureSize,renderer.getContext().getParameter(renderer.getContext().MAX_RENDERBUFFER_SIZE),8192))
+      const originalRatio=renderer.getPixelRatio(),originalSize=renderer.getSize(new THREE.Vector2())
+      capturing=true
+      try{
+        renderer.setPixelRatio(1);renderer.setSize(size.width,size.height,false);camera.aspect=size.width/size.height;camera.updateProjectionMatrix();renderer.render(scene,camera)
+        const blob=await new Promise(resolve=>renderer.domElement.toBlob(resolve,'image/png'))
+        if(!blob)throw new Error('This device could not encode that resolution. Choose 4K and try again.')
+        return {blob,...size,formId:modelId}
+      }finally{renderer.setPixelRatio(originalRatio);renderer.setSize(originalSize.x,originalSize.y,false);camera.aspect=originalSize.x/originalSize.y;camera.updateProjectionMatrix();capturing=false;if(!disposed)renderer.render(scene,camera)}
+    },
+    dispose(){disposed=true;version++;cancelAnimationFrame(frame);observer.disconnect();controls.dispose();renderer.domElement.removeEventListener('webglcontextlost',lostHandler);if(model)disposeForm(model);active.forEach(t=>t?.dispose());[cloth,piping,timber,metal,floorMaterial].forEach(m=>m.dispose());floor.geometry.dispose();environment.dispose();renderer.dispose();renderer.domElement.remove()},
+  }
 }

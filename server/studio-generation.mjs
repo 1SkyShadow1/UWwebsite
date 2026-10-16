@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import sharp from 'sharp'
 import { materialResponse } from '../src/studio/material-response.js'
-import { getAiCredential, aiCredentialConfigured } from './ai-credentials.mjs'
+import { getAiCredential, aiCredentialConfigured, getAiProvider } from './ai-credentials.mjs'
 
 export class StudioGenerationError extends Error {
   constructor(status,message){super(message);this.status=status}
@@ -129,9 +129,46 @@ export async function editWithOpenAI(prepared,material,{key,signal,owner,model='
   catch{reject(502,'The generated image could not be decoded. The original photograph is still available.')}
 }
 
+export async function editWithGoogle(prepared,material,{key,signal,model=process.env.GOOGLE_IMAGE_MODEL || 'gemini-3.1-flash-image',quality='high',fetchImpl=fetch}={}){
+  if(!/^[a-zA-Z0-9._-]+$/.test(model))reject(503,'Choose a valid Google image model on the server.')
+  const imageSize=quality==='low'?'1K':process.env.GOOGLE_IMAGE_SIZE || '1K'
+  if(!['1K','2K','4K'].includes(imageSize))reject(503,'Choose 1K, 2K or 4K for GOOGLE_IMAGE_SIZE.')
+  const selection=await decoder(prepared.mask).extractChannel('alpha').raw().toBuffer()
+  for(let p=0;p<selection.length;p++)selection[p]=255-selection[p]
+  const guide=await sharp(selection,{raw:{width:prepared.photoInfo.width,height:prepared.photoInfo.height,channels:1}}).png().toBuffer()
+  const inline=bytes=>({inline_data:{mime_type:'image/png',data:bytes.toString('base64')}})
+  const prompt=upholsteryPrompt(material).replace('inside the transparent mask','inside the white area of image 3')+'\nImage 3 is a selection guide only: white means upholstery to replace, black means protected room. Never reproduce the guide in the output. Return one edited photograph aligned exactly to image 1, at its original aspect ratio.'
+  let response
+  try{
+    response=await fetchImpl(`https://generativelanguage.googleapis.com/v1/models/${model}:generateContent`,{
+      method:'POST',headers:{'x-goog-api-key':key,'Content-Type':'application/json'},signal,
+      body:JSON.stringify({contents:[{role:'user',parts:[{text:prompt},inline(prepared.image),inline(prepared.fabric),inline(guide)]}],generationConfig:{responseModalities:['TEXT','IMAGE'],responseFormat:{image:{imageSize}}}}),
+    })
+  }catch(error){if(signal?.aborted)throw error;reject(502,'The Google AI connection was interrupted. Your original photograph is still available.')}
+  if(!response.ok){
+    if([401,403].includes(response.status))reject(503,'Google rejected this connection. Check the Gemini API key, API restrictions and model access.')
+    if(response.status===429)reject(429,'The Google API project has reached its quota, billing or rate limit. Check Google AI Studio before generating again.')
+    if(response.status===404)reject(503,'This Google image model is unavailable for the project. Check GOOGLE_IMAGE_MODEL on the server.')
+    if(response.status===400)reject(502,'Google could not accept this edit. Check the image model and API key restrictions, or try another photograph.')
+    reject(502,'Google could not finish this edit. Your original photograph is still available.')
+  }
+  const payload=await limitedJson(response)
+  const parts=payload.candidates?.[0]?.content?.parts || []
+  const part=parts.find(item=>!item.thought&&(item.inlineData || item.inline_data))
+  const data=part?.inlineData || part?.inline_data,mime=data?.mimeType || data?.mime_type
+  if(!['image/png','image/jpeg','image/webp'].includes(mime)||typeof data?.data!=='string'||data.data.length>85_000_000)reject(502,'Google did not return an editable photograph. The request may have been filtered; try another image or selection.')
+  const bytes=Buffer.from(data.data,'base64')
+  if(bytes.toString('base64')!==data.data)reject(502,'Google returned an unreadable image. Your original is still available.')
+  try{
+    const metadata=await decoder(bytes).metadata()
+    if(metadata.pages>1)throw new Error('Animated result')
+    return {image:await decoder(bytes).png().toBuffer(),width:metadata.width,height:metadata.height,model}
+  }catch{reject(502,'The Google image could not be decoded. Your original photograph is still available.')}
+}
+
 export async function compositeGeneration(prepared,generated){
   const {width,height}=generated
-  if(width*height>16_000_000||width<128||height<128)reject(502,'The AI returned an unsupported image size.')
+  if(width*height>20_000_000||width<128||height<128)reject(502,'The AI returned an unsupported image size.')
   if(Math.abs(width/height-prepared.photoInfo.width/prepared.photoInfo.height)/(prepared.photoInfo.width/prepared.photoInfo.height)>.04)reject(502,'The AI changed the framing too much. Refine the selection and try again.')
   // Preserve the actual room. Only the newly generated upholstery is composited;
   // no texture overlay, source shading multiplication or shader touches it.
@@ -147,10 +184,10 @@ export async function compositeGeneration(prepared,generated){
   return {imageData:`data:image/png;base64,${result.toString('base64')}`,width,height,nativeWidth:width,nativeHeight:height,model:generated.model}
 }
 
-export function createStudioGenerationService({getKey=getAiCredential,isConfigured=aiCredentialConfigured,edit=editWithOpenAI,now=Date.now,timeoutMs=240000,maxActive=2,maxCachedBytes=128_000_000,quality='high',maximumEdge=3840}={}){
+export function createStudioGenerationService({getKey=getAiCredential,isConfigured=aiCredentialConfigured,getProvider=getAiProvider,edit,now=Date.now,timeoutMs=240000,maxActive=2,maxCachedBytes=128_000_000,quality='high',maximumEdge=3840}={}){
   if(!['low','high'].includes(quality)||!Number.isInteger(maximumEdge)||maximumEdge<1024||maximumEdge>3840)throw new TypeError('Choose a supported generation quality and edge limit.')
   const jobs=new Map(),ttl=15*60*1000
-  const model=process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2.5-sunburst'
+  const modelFor=provider=>provider==='google'?(process.env.GOOGLE_IMAGE_MODEL || 'gemini-3.1-flash-image'):(process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2.5-sunburst')
   const trim=()=>{for(const [id,job]of jobs)if(now()-job.created>ttl){job.abort.abort();jobs.delete(id)}}
   const publicJob=job=>({id:job.id,status:job.status,stage:job.stage,error:job.error,materialId:job.materialId,...(job.result || {})})
   const active=job=>['preparing','generating','finishing'].includes(job.status)
@@ -159,10 +196,11 @@ export function createStudioGenerationService({getKey=getAiCredential,isConfigur
     try{
       const prepared=await prepareGeneration(body,material,{maximumEdge})
       if(job.abort.signal.aborted)throw Error('cancelled')
-      const key=await getKey()
+      const key=await getKey({provider:job.provider})
       if(!key)reject(503,'Generative AI is not connected. Save your API key using the local connection page.')
       job.status='generating';job.stage='Reupholstering panels, seams and light with AI…'
-      const generated=await untilAborted(edit(prepared,material,{key,signal:job.abort.signal,owner:job.owner,model,quality}),job.abort.signal)
+      const adapter=edit || (job.provider==='google'?editWithGoogle:editWithOpenAI)
+      const generated=await untilAborted(adapter(prepared,material,{key,signal:job.abort.signal,owner:job.owner,model:modelFor(job.provider),quality}),job.abort.signal)
       if(job.abort.signal.aborted)throw Error('cancelled')
       job.status='finishing';job.stage='Protecting the room and preparing the clean result…'
       job.result=await compositeGeneration(prepared,generated)
@@ -177,21 +215,22 @@ export function createStudioGenerationService({getKey=getAiCredential,isConfigur
     }finally{clearTimeout(timer)}
   }
   return {
-    async capabilities(){return {configured:await isConfigured(),provider:'OpenAI',model,quality,retentionMinutes:15,maximumNativePixels:Math.min(8_294_400,maximumEdge*maximumEdge),maximumNativeEdge:maximumEdge,photosSentOnRequest:true}},
+    async capabilities(){const provider=await getProvider();return {configured:await isConfigured(),provider:provider==='google'?'Google Gemini':'OpenAI',model:modelFor(provider),quality,requestedNativeSize:provider==='google'?(quality==='low'?'1K':process.env.GOOGLE_IMAGE_SIZE || '1K'):undefined,retentionMinutes:15,maximumNativePixels:provider==='google'?20_000_000:Math.min(8_294_400,maximumEdge*maximumEdge),maximumNativeEdge:provider==='google'?6144:maximumEdge,photosSentOnRequest:true}},
     async start(owner,body,key,materials){
       trim()
       if(!/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(key || ''))reject(400,'Use a unique generation request reference.')
       const material=materials.find(item=>item.id===body.materialId)
       if(!material)reject(400,'Choose a known fabric before generating.')
       imageBuffer(body.imageData,'Photograph');imageBuffer(body.maskData,'Selection mask')
-      const digest=createHash('sha256').update(body.materialId).update(body.imageData).update(body.maskData).digest('hex')
+      const provider=await getProvider()
+      const digest=createHash('sha256').update(provider).update(body.materialId).update(body.imageData).update(body.maskData).digest('hex')
       const configured=await isConfigured()
       const previous=[...jobs.values()].find(job=>job.owner===owner&&job.key===key)
       if(previous){if(previous.digest!==digest)reject(409,'This generation reference belongs to another edit. Start a new generation.');return publicJob(previous)}
       if(!configured)reject(503,'Generative AI is not connected. Save your API key using the local connection page.')
       if([...jobs.values()].filter(active).length>=maxActive||[...jobs.values()].some(job=>job.owner===owner&&active(job)))reject(429,'An AI edit is already running. Wait for it to finish before starting another.')
       if(jobs.size>=200)reject(429,'The AI studio is busy. Please try again later.')
-      const job={id:randomUUID(),owner,key,digest,materialId:body.materialId,created:now(),abort:new AbortController(),status:'preparing',stage:'Preparing the original photograph and fabric reference…'}
+      const job={id:randomUUID(),owner,key,digest,provider,materialId:body.materialId,created:now(),abort:new AbortController(),status:'preparing',stage:'Preparing the original photograph and fabric reference…'}
       jobs.set(job.id,job);void run(job,body,material)
       return publicJob(job)
     },

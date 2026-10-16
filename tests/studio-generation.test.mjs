@@ -6,9 +6,9 @@ import { mkdtemp, readFile, unlink, rmdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import sharp from 'sharp'
-import { createStudioGenerationService, prepareGeneration, editWithOpenAI, compositeGeneration, generationSize } from '../server/studio-generation.mjs'
+import { createStudioGenerationService, prepareGeneration, editWithOpenAI, editWithGoogle, compositeGeneration, generationSize } from '../server/studio-generation.mjs'
 import { createAiSetupHandler } from '../server/configure-ai.mjs'
-import { saveAiCredential, getAiCredential } from '../server/ai-credentials.mjs'
+import { saveAiCredential, getAiCredential, getAiProvider } from '../server/ai-credentials.mjs'
 import { createApiHandler } from '../server/index.mjs'
 import { openDatabase } from '../server/database.mjs'
 import { materials } from '../src/data/materials.js'
@@ -139,6 +139,39 @@ test('Windows local credentials round-trip through DPAPI without plaintext on di
   await saveAiCredential(fakeKey,{path})
   assert.ok(!(await readFile(path,'utf8')).includes(fakeKey))
   assert.equal(await getAiCredential({path,env:{}}),fakeKey)
+  await saveAiCredential(fakeKey,{path,provider:'google'})
+  assert.equal(await getAiProvider({path,env:{}}),'google')
+  assert.equal(await getAiCredential({path,env:{}}),fakeKey)
+  assert.equal(await getAiCredential({path,env:{},provider:'openai'}),null)
+  assert.equal(await getAiCredential({path,env:{OPENAI_API_KEY:'other-key'}}),fakeKey)
+})
+
+test('Google image editing sends an opaque selection guide, one photo and one swatch without putting the key in the URL',async()=>{
+  const fixture=await imageFixture(),prepared=await prepareGeneration(fixture.body,material)
+  let sent
+  const result=await editWithGoogle(prepared,material,{key:fakeKey,quality:'low',fetchImpl:async(endpoint,options)=>{
+    assert.match(endpoint,/^https:\/\/generativelanguage\.googleapis\.com\/v1\/models\/gemini-3\.1-flash-image:generateContent$/)
+    assert.ok(!endpoint.includes(fakeKey));assert.equal(options.headers['x-goog-api-key'],fakeKey)
+    sent=JSON.parse(options.body)
+    return new Response(JSON.stringify({candidates:[{content:{parts:[{thought:true,inlineData:{mimeType:'image/png',data:'not-the-result'}},{inlineData:{mimeType:'image/png',data:fixture.changed.toString('base64')}}]}}]}))
+  }})
+  assert.equal(sent.contents[0].parts.length,4);assert.equal(sent.generationConfig.responseFormat.image.imageSize,'1K')
+  const guide=Buffer.from(sent.contents[0].parts[3].inline_data.data,'base64')
+  const pixels=await sharp(guide).toColourspace('b-w').raw().toBuffer()
+  assert.equal(pixels[0],0);assert.equal(pixels[90*256+90],255)
+  assert.equal(result.width,256);assert.equal(result.height,192)
+  for(const status of [400,403,404,429,500])await assert.rejects(editWithGoogle(prepared,material,{key:fakeKey,fetchImpl:async()=>new Response(fakeKey,{status})}),error=>error.status>=400&&!error.message.includes(fakeKey))
+  await assert.rejects(editWithGoogle(prepared,material,{key:fakeKey,fetchImpl:async()=>new Response(JSON.stringify({candidates:[{content:{parts:[{text:fakeKey}]}}]}))}),/did not return/)
+})
+
+test('Google connection metadata and job dispatch select the Google model while keeping owner isolation',async t=>{
+  const fixture=await imageFixture();let providerSeen
+  const service=createStudioGenerationService({getProvider:async()=>'google',isConfigured:async()=>true,getKey:async options=>{assert.equal(options.provider,'google');return fakeKey},edit:async(_prepared,_material,options)=>{providerSeen=options.model;return {image:fixture.changed,width:256,height:192,model:options.model}}})
+  t.after(()=>service.dispose())
+  const capabilities=await service.capabilities();assert.equal(capabilities.provider,'Google Gemini');assert.equal(capabilities.requestedNativeSize,'1K')
+  const job=await service.start('owner',fixture.body,randomUUID(),materials)
+  assert.equal((await complete(service,'owner',job.id)).status,'complete');assert.equal(providerSeen,'gemini-3.1-flash-image')
+  assert.throws(()=>service.get('another-owner',job.id),/unavailable/)
 })
 
 test('the Studio generation client polls completed images and preserves terminal failures for explicit retry',async()=>{

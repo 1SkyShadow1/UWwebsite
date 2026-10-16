@@ -2,6 +2,12 @@
 
 Latest local review: 16 October 2026.
 
+## Google connection — 16 October 2026
+
+- Added a Google-specific encrypted connection form and Gemini image-edit adapter, with provider-tagged credentials and per-job provider routing. Legacy OpenAI credentials remain supported. Google defaults to 1K to limit cost.
+- All 58 automated tests pass. Google request tests use mocked responses and check the endpoint, key header, original/swatch/opaque guide, thought-image exclusion, sanitized errors, provider dispatch and credential isolation. Production build passes with 83 modules. The Google key form was verified in the browser.
+- No live Google generation has been run. Saving the key does not generate an image; successful account access, quota and output realism remain unverified until an explicit generation.
+
 ## Generative fabric replacement — 16 October 2026
 
 - Added server-side OpenAI image editing from the original photograph, transparent upholstery mask and a separate catalogue fabric reference. The local texture preview is never sent as the original or reapplied over a generated result. Protected room pixels are restored from the original.

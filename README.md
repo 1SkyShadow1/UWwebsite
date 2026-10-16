@@ -63,6 +63,8 @@ The older standalone `/api/visualiser/preview` flow still reports `awaiting-prov
 
 ## AI Studio realism
 
+Google Gemini is also supported. Run `npm run configure:ai -- --google` to open a Google-specific secure key window. Saving it selects Google for subsequent jobs; the existing Windows credential file remains private and encrypted. Alternatively supply `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) and `AI_IMAGE_PROVIDER=google` on the server. Defaults are `GOOGLE_IMAGE_MODEL=gemini-3.1-flash-image` and `GOOGLE_IMAGE_SIZE=1K`; 2K/4K can be configured explicitly. Saving a key does not run a paid request. Google receives the original, swatch and an opaque selection guide; protected room pixels are still restored locally on the server. See [Google's image editing documentation](https://ai.google.dev/gemini-api/docs/generate-content/image-generation). Provider-backed image quality requires a successful live request; mocked tests do not establish account quota or model access.
+
 AI Studio now uses local AI depth estimation, automatic selection, depth-guided fabric placement and material-specific light response. It has ten generated 3D upholstery forms, live camera tracking, 4K/8K PNG exports and private saved setup recipes. The comparison slider remains; the other sliders have been replaced with automatic settings. See [the Studio guide](docs/STUDIO.md) for the pipeline, licenses, asset preparation, privacy and practical realism limits.
 
 ## API

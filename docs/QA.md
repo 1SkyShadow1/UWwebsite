@@ -5,11 +5,11 @@ Latest local review: 19 October 2026.
 ## Supabase production connection — 19 October 2026
 
 - Created a dedicated Upholstery Warehouse project on the quoted $0/month Supabase Free plan, in the organization selected by the user. Connected it to the storefront's Vercel Production environment through the Marketplace integration; database credentials are stored as Vercel secrets.
-- Applied and queried the server tables. Both have row-level security enabled, and neither `anon` nor `authenticated` has table access. Supabase's security advisor reported only the two expected informational notices for deliberately policy-free server tables; there were no security warnings or errors.
+- Applied and queried the server tables. Both have row-level security enabled, and neither `anon` nor `authenticated` has table access. Supabase's security advisor reported only the two expected [informational notices for deliberately policy-free server tables](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy); there were no security warnings or errors.
 - Shared schema initialization preserves these restrictions after future deployments. A PostgreSQL regression simulates permissive Supabase default grants, checks that they are revoked, and verifies that row-level security still hides records if SELECT is later granted.
 - All 64 tests pass; the 83-module production build succeeds; all 237 referenced assets exist. Provider tests use mocks and do not charge API credits. Live provider output quality remains unverified.
 - A live save exposed `SELF_SIGNED_CERT_IN_CHAIN` with Supabase's pooler certificate. The Node adapter now bundles the provider's public root CA and retains certificate/hostname verification. The regression exercises pg's real URL/options parser to ensure integration SSL parameters cannot replace that configuration.
-- The already-deployed public health and Studio capabilities routes returned HTTP 200 before connection; activating newly connected secrets requires another deployment. Production save/reload validation is a separate post-deployment check.
+- After redeployment, production health and capabilities returned HTTP 200 with hosted storage and the Google connection configured. A disposable-owner smoke check passed actual saves/reloads, concurrent quantity updates, duplicate retries, rollback, projects, Studio recipes, CORS rejection and owner isolation. Both disposable owner rows were removed afterward. No paid image generation was requested; provider billing, model access and generated output quality remain unverified.
 
 ## Vercel API routes and persistence — 16 October 2026
 

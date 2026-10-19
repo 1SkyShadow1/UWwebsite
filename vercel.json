@@ -7,7 +7,7 @@
   "functions": {
     "api/handler.mjs": {
       "maxDuration": 300,
-      "includeFiles": "server-assets/**",
+      "includeFiles": "{server-assets/**,server/certs/**}",
       "excludeFiles": "{.data/**,tmp/**,public/**,dist/**,node_modules/@huggingface/**,node_modules/onnxruntime*/**}"
     }
   },

@@ -5,6 +5,7 @@ import { createApiHandler, ownerFor } from './index.mjs'
 import { createPostgresStore } from './postgres-store.mjs'
 import { createPersistentGeneration } from './persistent-generation.mjs'
 import { createStudioGenerationService } from './studio-generation.mjs'
+import { hostedPostgresOptions } from './postgres-connection.mjs'
 
 const json=(res,status,payload)=>{
   res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'})
@@ -25,8 +26,8 @@ function bufferResponse(real){
 }
 
 export function createVercelHandler({env=process.env,pool,edit,pollMs}={}){
-  const connectionString=env.DATABASE_URL || env.POSTGRES_URL
-  pool ||= connectionString?new Pool({connectionString,max:3,idleTimeoutMillis:10000,connectionTimeoutMillis:10000,allowExitOnIdle:true}):null
+  const connectionOptions=pool?null:hostedPostgresOptions(env)
+  pool ||= connectionOptions?new Pool(connectionOptions):null
   pool?.on?.('error',()=>console.error('The hosted database pool lost an idle connection.'))
   const limit=Number(env.AI_DAILY_GENERATION_LIMIT || 20)
   if(!Number.isInteger(limit)||limit<1||limit>1000)throw new Error('Set AI_DAILY_GENERATION_LIMIT to a whole number from 1 to 1000.')

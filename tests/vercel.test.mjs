@@ -6,6 +6,24 @@ import { PGlite } from '@electric-sql/pglite'
 import sharp from 'sharp'
 import { createVercelHandler } from '../server/vercel.mjs'
 import { createPostgresStore } from '../server/postgres-store.mjs'
+import { hostedPostgresOptions } from '../server/postgres-connection.mjs'
+import { Client } from 'pg'
+
+test('Supabase pooler URLs retain CA and hostname verification when pg parses integration SSL parameters',()=>{
+  for(const host of ['aws-0-eu-west-1.pooler.supabase.com','db.exampleproject.supabase.co']){
+    const options=hostedPostgresOptions({POSTGRES_URL:`postgres://postgres:test-only@${host}:6543/postgres?sslmode=no-verify&sslrootcert=ignored&uselibpqcompat=true`})
+    const client=new Client(options)
+    assert.equal(client.connectionParameters.ssl.rejectUnauthorized,true)
+    assert.match(client.connectionParameters.ssl.ca,/-----BEGIN CERTIFICATE-----/)
+    assert.equal(client.connectionParameters.ssl.checkServerIdentity,undefined)
+    assert.equal(client.connectionParameters.host,host)
+    assert.equal(client.connectionParameters.password,'test-only')
+  }
+  const neon='postgres://postgres:test-only@pooler.example.neon.tech/postgres?sslmode=verify-full'
+  assert.equal(hostedPostgresOptions({DATABASE_URL:neon}).connectionString,neon)
+  assert.equal(hostedPostgresOptions({}),null)
+  assert.throws(()=>hostedPostgresOptions({DATABASE_URL:'invalid-secret-value'}),error=>!error.message.includes('invalid-secret-value'))
+})
 
 // PGlite runs real PostgreSQL in-process. Its single connection is serialized
 // here; production uses pg.Pool and PostgreSQL's own row/advisory locks.

@@ -9,6 +9,7 @@ Latest local review: 19 October 2026.
 - Google requests use the documented generateContent endpoint with one candidate, bounded output tokens, a swatch and a protected selection guide. Nonstandard photo proportions are padded to a supported ratio and cropped back after generation, without stretching the furniture. Native detail is part of both local and durable retry fingerprints.
 - Recent edits are cached in the browser with count/byte limits. Returning to a cached fabric/detail restores the existing image without another paid request. Generation locks photo/material/selection changes until completion or explicit cancellation.
 - All 66 automated tests pass and the 84-module production build succeeds. Local browser checks with a mocked provider confirmed an untouched original, disabled pre-generation export, generated comparison, original view, detail-cache restoration and no console errors. Mock images are workflow fixtures, not evidence of AI realism.
+- Live Google token-count validation found that the newer `responseFormat.image` fields require enums rather than the string size/aspect values used by `imageConfig`. The adapter now uses `imageConfig`, which Google accepted with HTTP 200. This compatibility check does not generate an image.
 
 ## Supabase production connection — 19 October 2026
 

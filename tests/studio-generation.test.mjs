@@ -158,8 +158,9 @@ test('Google image editing sends an opaque selection guide, one photo and one sw
     sent=JSON.parse(options.body)
     return new Response(JSON.stringify({candidates:[{content:{parts:[{thought:true,inlineData:{mimeType:'image/png',data:'not-the-result'}},{inlineData:{mimeType:'image/png',data:fixture.changed.toString('base64')}}]}}]}))
   }})
-  assert.equal(sent.contents[0].parts.length,4);assert.equal(sent.generationConfig.responseFormat.image.imageSize,'1K')
-  assert.equal(sent.generationConfig.responseFormat.image.aspectRatio,'4:3')
+  assert.equal(sent.contents[0].parts.length,4);assert.equal(sent.generationConfig.imageConfig.imageSize,'1K')
+  assert.equal(sent.generationConfig.imageConfig.aspectRatio,'4:3')
+  assert.equal(sent.generationConfig.responseFormat,undefined)
   assert.equal(sent.generationConfig.candidateCount,1)
   const guide=Buffer.from(sent.contents[0].parts[3].inline_data.data,'base64')
   const pixels=await sharp(guide).toColourspace('b-w').raw().toBuffer()
@@ -188,8 +189,8 @@ test('Google edits pad unusual source proportions, request native detail and cro
   const returned=await sharp({create:{width:1008,height:672,channels:4,background:'#315a4b'}}).png().toBuffer()
   const result=await editWithGoogle(prepared,material,{key:fakeKey,fetchImpl:async(_endpoint,options)=>{
     const body=JSON.parse(options.body),parts=body.contents[0].parts
-    assert.equal(body.generationConfig.responseFormat.image.aspectRatio,'3:2')
-    assert.equal(body.generationConfig.responseFormat.image.imageSize,'4K')
+    assert.equal(body.generationConfig.imageConfig.aspectRatio,'3:2')
+    assert.equal(body.generationConfig.imageConfig.imageSize,'4K')
     const image=await sharp(Buffer.from(parts[1].inline_data.data,'base64')).metadata()
     assert.equal(image.width,288);assert.equal(image.height,192)
     const guide=await sharp(Buffer.from(parts[3].inline_data.data,'base64')).toColourspace('b-w').raw().toBuffer()

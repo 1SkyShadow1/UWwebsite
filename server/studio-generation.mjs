@@ -161,7 +161,7 @@ export async function editWithGoogle(prepared,material,{key,signal,model=process
   try{
     response=await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{
       method:'POST',headers:{'x-goog-api-key':key,'Content-Type':'application/json'},signal,
-      body:JSON.stringify({contents:[{role:'user',parts:[{text:prompt},inline(photo),inline(prepared.fabric),inline(guide)]}],generationConfig:{responseModalities:['TEXT','IMAGE'],candidateCount:1,maxOutputTokens:8192,responseFormat:{image:{imageSize,aspectRatio:frame.aspectRatio}}}}),
+      body:JSON.stringify({contents:[{role:'user',parts:[{text:prompt},inline(photo),inline(prepared.fabric),inline(guide)]}],generationConfig:{responseModalities:['TEXT','IMAGE'],candidateCount:1,maxOutputTokens:8192,imageConfig:{imageSize,aspectRatio:frame.aspectRatio}}}),
     })
   }catch(error){if(signal?.aborted)throw error;reject(502,'The Google AI connection was interrupted. Your original photograph is still available.')}
   if(!response.ok){

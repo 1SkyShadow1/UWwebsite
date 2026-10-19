@@ -77,6 +77,8 @@ export function createVercelHandler({env=process.env,pool,edit,pollMs}={}){
       })
       buffered.flush()
     }catch(error){
+      // Keep connection details and submitted data out of both logs and responses.
+      if(!error.status)console.error('Hosted request failed',{code:error.code || error.cause?.code || 'UNKNOWN',name:error.name})
       if(!res.headersSent)json(res,error.status || 503,{error:error.status?error.message:'The hosted database connection is unavailable. Your browser copy is still here; check the Vercel database settings.'})
       else res.end()
     }

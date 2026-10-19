@@ -30,6 +30,7 @@ function imageBuffer(value,label){
 }
 
 const decoder=buffer=>sharp(buffer,{limitInputPixels:50_000_000,failOn:'error'})
+const validateNativeSize=value=>{if(value!==undefined&&!['1K','2K','4K'].includes(value))reject(400,'Choose 1K, 2K or 4K for the AI image detail.')}
 
 async function fabricReference(path){
   for(const directory of process.env.VERCEL?['server-assets']:['public','dist']){
@@ -50,7 +51,13 @@ async function untilAborted(promise,signal){
   finally{signal.removeEventListener('abort',stop)}
 }
 
-export async function prepareGeneration({imageData,maskData},material,{maximumEdge=3840}={}){
+export function generationDigest(provider,body){
+  validateNativeSize(body.nativeSize)
+  return createHash('sha256').update(provider).update(body.materialId).update(body.nativeSize || 'default').update(body.imageData).update(body.maskData).digest('hex')
+}
+
+export async function prepareGeneration({imageData,maskData,nativeSize},material,{maximumEdge=3840}={}){
+  validateNativeSize(nativeSize)
   const input=imageBuffer(imageData,'Photograph'),mask=imageBuffer(maskData,'Selection mask')
   let photoInfo,maskInfo
   try{[photoInfo,maskInfo]=await Promise.all([decoder(input).metadata(),decoder(mask).metadata()])}
@@ -83,7 +90,7 @@ export async function prepareGeneration({imageData,maskData},material,{maximumEd
     }
     fabric=await sharp(raw.data,{raw:{width:raw.info.width,height:raw.info.height,channels:4}}).png().toBuffer()
   }catch{reject(503,'The selected fabric reference could not load. Choose another material or retry.')}
-  return {image,mask,fabric,size,photoInfo}
+  return {image,mask,fabric,size,photoInfo,nativeSize}
 }
 
 export function upholsteryPrompt(material){
@@ -129,20 +136,32 @@ export async function editWithOpenAI(prepared,material,{key,signal,owner,model='
   catch{reject(502,'The generated image could not be decoded. The original photograph is still available.')}
 }
 
+export function googleEditFrame(width,height){
+  const ratios=[[1,1],[5,4],[4,3],[3,2],[16,9],[21,9],[4,5],[3,4],[2,3],[9,16],[9,21]]
+  const [x,y]=ratios.sort((a,b)=>Math.abs(Math.log(width/height/(a[0]/a[1])))-Math.abs(Math.log(width/height/(b[0]/b[1]))))[0]
+  const unit=Math.ceil(Math.max(width/x,height/y)),frameWidth=unit*x,frameHeight=unit*y
+  return {width:frameWidth,height:frameHeight,left:Math.floor((frameWidth-width)/2),top:Math.floor((frameHeight-height)/2),aspectRatio:`${x}:${y}`}
+}
+
 export async function editWithGoogle(prepared,material,{key,signal,model=process.env.GOOGLE_IMAGE_MODEL || 'gemini-3.1-flash-image',quality='high',fetchImpl=fetch}={}){
   if(!/^[a-zA-Z0-9._-]+$/.test(model))reject(503,'Choose a valid Google image model on the server.')
-  const imageSize=quality==='low'?'1K':process.env.GOOGLE_IMAGE_SIZE || '1K'
+  const imageSize=quality==='low'?'1K':prepared.nativeSize || process.env.GOOGLE_IMAGE_SIZE || '1K'
   if(!['1K','2K','4K'].includes(imageSize))reject(503,'Choose 1K, 2K or 4K for GOOGLE_IMAGE_SIZE.')
   const selection=await decoder(prepared.mask).extractChannel('alpha').raw().toBuffer()
   for(let p=0;p<selection.length;p++)selection[p]=255-selection[p]
-  const guide=await sharp(selection,{raw:{width:prepared.photoInfo.width,height:prepared.photoInfo.height,channels:1}}).png().toBuffer()
+  const {width:sourceWidth,height:sourceHeight}=prepared.photoInfo,frame=googleEditFrame(sourceWidth,sourceHeight)
+  const padding={left:frame.left,top:frame.top,right:frame.width-sourceWidth-frame.left,bottom:frame.height-sourceHeight-frame.top}
+  const [photo,guide]=await Promise.all([
+    decoder(prepared.image).extend({...padding,background:'#e8e6e2'}).png().toBuffer(),
+    sharp(selection,{raw:{width:sourceWidth,height:sourceHeight,channels:1}}).extend({...padding,background:'#000'}).png().toBuffer(),
+  ])
   const inline=bytes=>({inline_data:{mime_type:'image/png',data:bytes.toString('base64')}})
-  const prompt=upholsteryPrompt(material).replace('inside the transparent mask','inside the white area of image 3')+'\nImage 3 is a selection guide only: white means upholstery to replace, black means protected room. Never reproduce the guide in the output. Return one edited photograph aligned exactly to image 1, at its original aspect ratio.'
+  const prompt=upholsteryPrompt(material).replace('inside the transparent mask','inside the white area of image 3')+'\nImage 3 is a selection guide only: white means upholstery to replace, black means protected room. Never reproduce the guide in the output. This is an image edit, not a redesign: keep every cushion and seam at its exact original pixel position. Preserve the entire framing of image 1, including any narrow protective border. Do not zoom, crop, move, reshape or restage the furniture. Return one photographic edit, not a swatch, illustration or rendered texture layer.'
   let response
   try{
-    response=await fetchImpl(`https://generativelanguage.googleapis.com/v1/models/${model}:generateContent`,{
+    response=await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{
       method:'POST',headers:{'x-goog-api-key':key,'Content-Type':'application/json'},signal,
-      body:JSON.stringify({contents:[{role:'user',parts:[{text:prompt},inline(prepared.image),inline(prepared.fabric),inline(guide)]}],generationConfig:{responseModalities:['TEXT','IMAGE'],responseFormat:{image:{imageSize}}}}),
+      body:JSON.stringify({contents:[{role:'user',parts:[{text:prompt},inline(photo),inline(prepared.fabric),inline(guide)]}],generationConfig:{responseModalities:['TEXT','IMAGE'],candidateCount:1,maxOutputTokens:8192,responseFormat:{image:{imageSize,aspectRatio:frame.aspectRatio}}}}),
     })
   }catch(error){if(signal?.aborted)throw error;reject(502,'The Google AI connection was interrupted. Your original photograph is still available.')}
   if(!response.ok){
@@ -161,9 +180,13 @@ export async function editWithGoogle(prepared,material,{key,signal,model=process
   if(bytes.toString('base64')!==data.data)reject(502,'Google returned an unreadable image. Your original is still available.')
   try{
     const metadata=await decoder(bytes).metadata()
-    if(metadata.pages>1)throw new Error('Animated result')
-    return {image:await decoder(bytes).png().toBuffer(),width:metadata.width,height:metadata.height,model}
-  }catch{reject(502,'The Google image could not be decoded. Your original photograph is still available.')}
+    if(metadata.pages>1||metadata.width*metadata.height>20_000_000)throw new Error('Unsupported result')
+    if(Math.abs(metadata.width/metadata.height-frame.width/frame.height)/(frame.width/frame.height)>.04)reject(502,'Google changed the photograph’s framing. Your original is unchanged; try again with a tighter selection.')
+    const left=Math.round(frame.left/frame.width*metadata.width),top=Math.round(frame.top/frame.height*metadata.height)
+    const width=Math.min(metadata.width-left,Math.round(sourceWidth/frame.width*metadata.width)),height=Math.min(metadata.height-top,Math.round(sourceHeight/frame.height*metadata.height))
+    const image=await decoder(bytes).extract({left,top,width,height}).png().toBuffer()
+    return {image,width,height,model}
+  }catch(error){if(error.status)throw error;reject(502,'The Google image could not be decoded. Your original photograph is still available.')}
 }
 
 export async function compositeGeneration(prepared,generated){
@@ -223,7 +246,7 @@ export function createStudioGenerationService({getKey=getAiCredential,isConfigur
       if(!material)reject(400,'Choose a known fabric before generating.')
       imageBuffer(body.imageData,'Photograph');imageBuffer(body.maskData,'Selection mask')
       const provider=await getProvider()
-      const digest=createHash('sha256').update(provider).update(body.materialId).update(body.imageData).update(body.maskData).digest('hex')
+      const digest=generationDigest(provider,body)
       const configured=await isConfigured()
       const previous=[...jobs.values()].find(job=>job.owner===owner&&job.key===key)
       if(previous){if(previous.digest!==digest)reject(409,'This generation reference belongs to another edit. Start a new generation.');return publicJob(previous)}

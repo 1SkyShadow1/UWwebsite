@@ -31,9 +31,13 @@
 .studio-next .studio-empty .button { background:#f5ce39; color:#080808; border:0; font-size:11px; padding:15px 22px; margin:5px 0 18px; border-radius:0; }
 .studio-next .studio-empty .text-link { font-size:10px; color:#ddd; }
 .studio-next #studio-busy { background:#0505059e; backdrop-filter:blur(3px); color:#fff; z-index:4; }
-.studio-next .studio-generated-image { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; z-index:1; pointer-events:none; }
-.studio-next #studio-stage-label { z-index:2; }
-.studio-next .studio-divider { z-index:3; }
+.studio-next .studio-original-image,.studio-next .studio-generated-image { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; pointer-events:none; }
+.studio-next .studio-original-image { z-index:0; }
+.studio-next .studio-stage canvas { position:relative; z-index:1; }
+.studio-next .studio-generated-image { z-index:2; }
+.studio-next #studio-stage-label { z-index:3; }
+.studio-next .studio-divider { z-index:4; }
+.studio-next #studio-busy { z-index:5; }
 .studio-generation { padding:24px 22px; border-top:1px solid var(--edge); border-bottom:1px solid var(--edge); background:var(--bg); }
 .studio-generation .spec-label { color:var(--gold); font-size:8px; }
 .studio-generation h3 { font:400 26px/1.2 var(--display); margin:10px 0; }
@@ -42,6 +46,10 @@
 .studio-generation-actions { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin:18px 0 10px; }
 .studio-generation-actions .button { padding:13px 18px; font-size:11px; }
 .studio-generation-actions .text-link { padding:8px 0; font-size:10px; }
+.studio-native-quality { display:grid; gap:6px; color:var(--muted); font-size:9px; }
+.studio-next .studio-native-quality select { min-height:42px; background:var(--panel); }
+.studio-generation-actions { align-items:end; }
+.studio-next[data-photo-state=generating] .studio-stage { outline:1px solid var(--brand-gold); outline-offset:-1px; }
 .studio-next #studio-generation-status { color:var(--gold); }
 .studio-next #studio-busy i { border-color:#ffffff22; border-top-color:#f5ce39; }
 .studio-next #studio-stage-label { color:#f5ce39; background:#000b; border:1px solid #ffffff12; border-radius:0; font-size:8px; }

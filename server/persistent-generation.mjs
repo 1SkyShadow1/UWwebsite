@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto'
-import { createStudioGenerationService, prepareGeneration, StudioGenerationError } from './studio-generation.mjs'
+import { createStudioGenerationService, prepareGeneration, generationDigest, StudioGenerationError } from './studio-generation.mjs'
 
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 
@@ -18,7 +17,7 @@ export function createPersistentGeneration({store,configured,local=createStudioG
       // Reject invalid inputs before reserving a durable, potentially paid job.
       await prepareGeneration(body,material)
       const provider=await getProvider()
-      const digest=createHash('sha256').update(provider).update(body.materialId).update(body.imageData).update(body.maskData).digest('hex')
+      const digest=generationDigest(provider,body)
       const claim=await store.claim(owner,key,digest)
       if(!claim.fresh)return claim.job
       const id=claim.job.id

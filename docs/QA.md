@@ -2,6 +2,14 @@
 
 Latest local review: 19 October 2026.
 
+## Generated upholstery photographs — 19 October 2026
+
+- Photograph mode now displays the actual original image until a generated edit is ready. Its material shader is no longer used for the photo result; live camera studies and 3D remain separate estimates. Generation controls sit above the photograph, and the original/new comparison appears only for a generated result.
+- Added explicit native 1K/2K/4K AI detail, with 4K selected initially. Export uses the finished generated image directly. 8K export remains explicitly labelled as resizing the native master.
+- Google requests use the documented generateContent endpoint with one candidate, bounded output tokens, a swatch and a protected selection guide. Nonstandard photo proportions are padded to a supported ratio and cropped back after generation, without stretching the furniture. Native detail is part of both local and durable retry fingerprints.
+- Recent edits are cached in the browser with count/byte limits. Returning to a cached fabric/detail restores the existing image without another paid request. Generation locks photo/material/selection changes until completion or explicit cancellation.
+- All 66 automated tests pass and the 84-module production build succeeds. Local browser checks with a mocked provider confirmed an untouched original, disabled pre-generation export, generated comparison, original view, detail-cache restoration and no console errors. Mock images are workflow fixtures, not evidence of AI realism.
+
 ## Supabase production connection — 19 October 2026
 
 - Created a dedicated Upholstery Warehouse project on the quoted $0/month Supabase Free plan, in the organization selected by the user. Connected it to the storefront's Vercel Production environment through the Marketplace integration; database credentials are stored as Vercel secrets.

@@ -52,17 +52,8 @@ export function generationInputs(photo,mask,maskWidth,maskHeight){
   throw new Error('This photograph is too detailed for the hosted upload limit. Use a smaller or more tightly cropped photograph.')
 }
 
-export function compositeAiResult(context,source,result,mask,width,height){
-  const {canvas}=context
-  context.drawImage(source,0,0,canvas.width,canvas.height)
-  const layer=typeof OffscreenCanvas==='function'?new OffscreenCanvas(canvas.width,canvas.height):document.createElement('canvas')
-  layer.width=canvas.width;layer.height=canvas.height
-  const paint=layer.getContext('2d');paint.drawImage(result,0,0,canvas.width,canvas.height)
-  paint.globalCompositeOperation='destination-in'
-  const selection=selectionMaskCanvas(mask,width,height),alpha=selection.getContext('2d').getImageData(0,0,width,height)
-  for(let p=0;p<mask.length;p++)alpha.data[p*4+3]=255-alpha.data[p*4+3]
-  selection.getContext('2d').putImageData(alpha,0,0)
-  paint.drawImage(selection,0,0,canvas.width,canvas.height)
-  context.drawImage(layer,0,0)
-  layer.width=layer.height=1
+// The server has already preserved the room and fitted the generated upholstery.
+// Export that finished image directly; no material shader or second mask pass.
+export function drawGeneratedResult(context,result){
+  context.drawImage(result,0,0,context.canvas.width,context.canvas.height)
 }

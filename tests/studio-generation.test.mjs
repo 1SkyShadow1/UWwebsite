@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import sharp from 'sharp'
 import { createStudioGenerationService, prepareGeneration, editWithOpenAI, editWithGoogle, compositeGeneration, generationSize } from '../server/studio-generation.mjs'
+import { photoPresentation } from '../src/studio/photo-presentation.js'
 import { createAiSetupHandler } from '../server/configure-ai.mjs'
 import { saveAiCredential, getAiCredential, getAiProvider } from '../server/ai-credentials.mjs'
 import { createApiHandler } from '../server/index.mjs'
@@ -77,6 +78,8 @@ test('generation retries are duplicate-safe, results stay owner-private and canc
   assert.equal(first.id,retry.id)
   assert.throws(()=>service.get('another-owner',first.id),/unavailable/)
   await assert.rejects(service.start('owner',{...fixture.body,materialId:'leather'},key,materials),/another edit/)
+  await assert.rejects(service.start('owner',{...fixture.body,nativeSize:'4K'},key,materials),/another edit/)
+  await assert.rejects(service.start('owner',{...fixture.body,nativeSize:{}},randomUUID(),materials),error=>error.status===400)
   const result=await complete(service,'owner',first.id);assert.equal(result.status,'complete');assert.equal(calls,1);assert.ok(result.imageData)
   const next=await service.start('owner',fixture.body,randomUUID(),materials)
   assert.equal(service.cancel('owner',next.id).status,'cancelled')
@@ -150,18 +153,52 @@ test('Google image editing sends an opaque selection guide, one photo and one sw
   const fixture=await imageFixture(),prepared=await prepareGeneration(fixture.body,material)
   let sent
   const result=await editWithGoogle(prepared,material,{key:fakeKey,quality:'low',fetchImpl:async(endpoint,options)=>{
-    assert.match(endpoint,/^https:\/\/generativelanguage\.googleapis\.com\/v1\/models\/gemini-3\.1-flash-image:generateContent$/)
+    assert.match(endpoint,/^https:\/\/generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-3\.1-flash-image:generateContent$/)
     assert.ok(!endpoint.includes(fakeKey));assert.equal(options.headers['x-goog-api-key'],fakeKey)
     sent=JSON.parse(options.body)
     return new Response(JSON.stringify({candidates:[{content:{parts:[{thought:true,inlineData:{mimeType:'image/png',data:'not-the-result'}},{inlineData:{mimeType:'image/png',data:fixture.changed.toString('base64')}}]}}]}))
   }})
   assert.equal(sent.contents[0].parts.length,4);assert.equal(sent.generationConfig.responseFormat.image.imageSize,'1K')
+  assert.equal(sent.generationConfig.responseFormat.image.aspectRatio,'4:3')
+  assert.equal(sent.generationConfig.candidateCount,1)
   const guide=Buffer.from(sent.contents[0].parts[3].inline_data.data,'base64')
   const pixels=await sharp(guide).toColourspace('b-w').raw().toBuffer()
   assert.equal(pixels[0],0);assert.equal(pixels[90*256+90],255)
   assert.equal(result.width,256);assert.equal(result.height,192)
   for(const status of [400,403,404,429,500])await assert.rejects(editWithGoogle(prepared,material,{key:fakeKey,fetchImpl:async()=>new Response(fakeKey,{status})}),error=>error.status>=400&&!error.message.includes(fakeKey))
   await assert.rejects(editWithGoogle(prepared,material,{key:fakeKey,fetchImpl:async()=>new Response(JSON.stringify({candidates:[{content:{parts:[{text:fakeKey}]}}]}))}),/did not return/)
+})
+
+test('photo presentation never applies a fabric shader before or over a generated edit',()=>{
+  for(const hasResult of [false,true])for(const showResult of [false,true]){
+    const view=photoPresentation({hasResult,showResult,compare:.25})
+    assert.equal(view.shaderCompare,1)
+    assert.equal(view.generated,hasResult&&showResult)
+    assert.equal(view.comparison,hasResult&&showResult)
+  }
+  const selection=photoPresentation({hasResult:true,showMask:true})
+  assert.equal(selection.generated,false);assert.equal(selection.label,'UPHOLSTERY SELECTION')
+  assert.equal(photoPresentation({mode:'camera',compare:.25}).shaderCompare,.25)
+})
+
+test('Google edits pad unusual source proportions, request native detail and crop back without stretching the furniture',async()=>{
+  const fixture=await imageFixture()
+  const photo=await sharp(fixture.photo).resize(280,192).png().toBuffer(),mask=await sharp(fixture.mask).resize(280,192).png().toBuffer()
+  const prepared=await prepareGeneration({imageData:url(photo),maskData:url(mask),nativeSize:'4K'},material)
+  const returned=await sharp({create:{width:1008,height:672,channels:4,background:'#315a4b'}}).png().toBuffer()
+  const result=await editWithGoogle(prepared,material,{key:fakeKey,fetchImpl:async(_endpoint,options)=>{
+    const body=JSON.parse(options.body),parts=body.contents[0].parts
+    assert.equal(body.generationConfig.responseFormat.image.aspectRatio,'3:2')
+    assert.equal(body.generationConfig.responseFormat.image.imageSize,'4K')
+    const image=await sharp(Buffer.from(parts[1].inline_data.data,'base64')).metadata()
+    assert.equal(image.width,288);assert.equal(image.height,192)
+    const guide=await sharp(Buffer.from(parts[3].inline_data.data,'base64')).toColourspace('b-w').raw().toBuffer()
+    assert.equal(guide[96*288],0)
+    return new Response(JSON.stringify({candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:returned.toString('base64')}}]}}]}))
+  }})
+  assert.equal(result.width,980);assert.equal(result.height,672)
+  assert.equal(result.width/result.height,280/192)
+  await assert.rejects(prepareGeneration({...fixture.body,nativeSize:'8K'},material),/1K, 2K or 4K/)
 })
 
 test('Google connection metadata and job dispatch select the Google model while keeping owner isolation',async t=>{

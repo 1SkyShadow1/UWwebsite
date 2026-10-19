@@ -7,7 +7,8 @@ import { acquireCamera } from './camera.js'
 import { resampleSelection } from './selection.js'
 import { materialResponse, studioForms, exportSize, encodedPngSize } from './material-response.js'
 import { loadMaterialImages } from './texture.js'
-import { generateUpholstery, generationInputs, compositeAiResult } from './generative.js'
+import { generateUpholstery, generationInputs, drawGeneratedResult } from './generative.js'
+import { photoPresentation } from './photo-presentation.js'
 import { normaliseSearch } from '../data/discovery.js'
 import { escapeHtml } from '../lib/html.js'
 import { request } from '../lib/api.js'
@@ -34,6 +35,8 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   let analysisRunning=false,analysisQueued=false,analysisRevision=0,analysisBusy=false,analysisWorkerFailed=false
   const lightingWaiters=new Set()
   let generationConnected=false,generationStarting=false,generationPending=false,generationVersion=0,generationAbort,generationAttempt,generated,showGenerated=true
+  const generationCache=new Map()
+  const resultKey=()=>`${epoch}:${analysisRevision}:${material.id}:${$('ai-quality').value}`
   let stream,video,animation,lastFrame=0,lastTrack=0,lastSelection=0,lastDepth=0,previousFrame,cameraStarting=false,studies=[],saveAttempt,exportUrl
   const status=message=>{if(!disposed)$('status').textContent=message}
   const showBusy=(value,message)=>{$('busy').hidden=!value;if(message)$('busy-label').textContent=message}
@@ -51,34 +54,40 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
 
   function updateControls(){
     const selected=Boolean(analysis?.selected),editing=mode!=='3d'
+    const locked=exporting||generationStarting||generationPending
+    const presentation=photoPresentation({mode,hasResult:Boolean(generated),showResult:showGenerated,showMask:$('mask-toggle').checked})
+    root.dataset.photoState=generationPending?'generating':generated?'generated':source?'original':'empty'
     $('generation').hidden=!editing
-    $('generate').disabled=exporting||loading||generationStarting||generationPending||!generationConnected||!source||!selected||(mode==='photo'&&(analysisBusy||depthBusy||selecting))
-    $('generate').textContent=generationPending?'AI is reupholstering…':'Generate AI reupholstery ✦'
+    $('generate').disabled=exporting||loading||generationStarting||generationPending||!generationConnected||!source||!selected||(mode==='photo'&&(analysisBusy||selecting))
+    $('generate').textContent=generationPending?'AI is reupholstering…':generated?'Generate another version ↻':`Generate ${material.name} ✦`
+    $('generation-brief').textContent=`Reupholster your piece in ${material.name}. AI replaces the fabric using your original photograph, preserving the furniture’s shape, panel seams and room.`
+    $('ai-quality').disabled=locked
     $('cancel-generation').hidden=!generationPending
     $('toggle-result').hidden=!generated
     $('toggle-result').disabled=exporting||generationStarting||generationPending
-    $('toggle-result').textContent=showGenerated?'Show instant preview':'Show AI reupholstery'
-    $('engine').textContent=mode==='3d'?'GENERATED 3D STUDY':generated&&showGenerated?'AI GENERATED RESULT':renderer?'INSTANT LOCAL PREVIEW':'LOCAL COMPATIBILITY PREVIEW'
-    $('auto-select').disabled=!source||selecting||loading||!editing||exporting
-    $('undo').disabled=!history.length||selecting||mode==='camera'||!editing||exporting
-    $('redo').disabled=!redo.length||selecting||mode==='camera'||!editing||exporting
-    $('clear').disabled=!selected||selecting||!editing||exporting
-    $('export').disabled=exporting||loading||generationPending||!images||(mode==='3d'?!pbr:!selected||(mode==='photo'&&(analysisBusy||depthBusy||selecting)))
-    $('export').textContent=exporting?'Preparing your image…':generated&&showGenerated?'Download AI result ↓':'Download instant preview ↓'
-    root.querySelectorAll('[data-studio-material],[data-studio-upload],[data-studio-light]').forEach(button=>button.disabled=exporting)
-    for(const id of ['photo','camera','pbr','form','quality','demo'])$(id).disabled=exporting
-    $('saved-setups').disabled=exporting
+    $('toggle-result').textContent=showGenerated?'View original':'Compare AI result'
+    $('engine').textContent=mode==='3d'?'GENERATED 3D STUDY':presentation.label
+    $('auto-select').disabled=!source||selecting||loading||!editing||locked
+    $('undo').disabled=!history.length||selecting||mode==='camera'||!editing||locked
+    $('redo').disabled=!redo.length||selecting||mode==='camera'||!editing||locked
+    $('clear').disabled=!selected||selecting||!editing||locked
+    $('export').disabled=locked||loading||(mode!=='photo'&&!images)||(mode==='3d'?!pbr:!selected||(mode==='photo'&&(!generated||analysisBusy||selecting)))
+    $('export').textContent=exporting?'Preparing your image…':mode==='photo'?'Download AI photograph ↓':mode==='3d'?'Download 3D image ↓':'Download camera study ↓'
+    root.querySelectorAll('[data-studio-material],[data-studio-upload],[data-studio-light]').forEach(button=>button.disabled=locked)
+    for(const id of ['photo','camera','pbr','form','quality','demo'])$(id).disabled=locked
+    $('saved-setups').disabled=locked
     $('refine').hidden=!editing
-    $('comparison').hidden=$('divider').hidden=!editing||!selected
+    $('comparison').hidden=$('divider').hidden=!editing||!selected||!presentation.comparison
     $('capture').hidden=$('stop').hidden=mode!=='camera'
     $('model-controls').hidden=mode!=='3d'
     $('stage').hidden=mode==='3d';$('pbr-panel').hidden=mode!=='3d'
     $('compare').disabled=!selected||!editing
-    $('mask-toggle').disabled=!selected||!editing
-    root.querySelectorAll('[data-studio-tool]').forEach(button=>button.disabled=!source||selecting||mode==='camera'||exporting)
+    $('mask-toggle').disabled=!selected||!editing||locked
+    root.querySelectorAll('[data-studio-tool],[data-studio-brush]').forEach(button=>button.disabled=!source||selecting||mode==='camera'||locked)
     for(const [id,value]of[['photo','photo'],['camera','camera'],['pbr','3d']])$(id).setAttribute('aria-pressed',String(mode===value))
     $('selection-state').textContent=mode==='3d'?'✓ Generated 3D geometry':selecting?'◌ Selecting upholstery':selected?'✓ Upholstery selected':'◌ Auto selection'
-    if(mode==='3d')$('depth-state').textContent='✓ Real surface normals'
+    if(mode==='photo')$('depth-state').textContent=selected?'✓ Original camera & framing':'◌ Preparing photograph'
+    else if(mode==='3d')$('depth-state').textContent='✓ Real surface normals'
     else if(depthBusy)$('depth-state').textContent='◌ Analysing AI depth'
     else if(analysisBusy&&mode==='photo')$('depth-state').textContent='◌ Preserving light & seams'
     else $('depth-state').textContent=analysis?.depth?'✓ AI depth aligned':depthFailure?'○ Estimated surface':'◌ Surface depth'
@@ -89,15 +98,18 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     updateControls()
     if(!source||mode==='3d')return
     try{
-      const aiVisible=Boolean(generated&&showGenerated&&!$('mask-toggle').checked)
+      const presentation=photoPresentation({mode,hasResult:Boolean(generated),showResult:showGenerated,showMask:$('mask-toggle').checked,compare:Number($('compare').value)/100})
+      const aiVisible=presentation.generated
+      $('original-image').hidden=mode!=='photo'||$('mask-toggle').checked
+      canvas.style.opacity=mode==='photo'&&!$('mask-toggle').checked?'0':'1'
       $('generated-image').hidden=!aiVisible
       $('generated-image').style.clipPath=`inset(0 0 0 ${$('compare').value}%)`
-      if(aiVisible)$('stage-label').textContent='AI REUPHOLSTERY / GENERATED FABRIC'
-      else if(mode==='photo')$('stage-label').textContent='INSTANT MATERIAL PREVIEW'
-      if(renderer)renderer.render({compare:aiVisible?1:Number($('compare').value)/100,showMask:$('mask-toggle').checked,width:base.width,height:base.height})
+      $('stage-label').textContent=presentation.label
+      canvas.setAttribute('aria-label',aiVisible?`Original and AI reupholstery in ${material.name}. Drag the divider to compare.`:'Original furniture photograph. Tap upholstery to refine the selection before generating.')
+      if(renderer&&(mode==='camera'||$('mask-toggle').checked))renderer.render({compare:presentation.shaderCompare,showMask:$('mask-toggle').checked,width:base.width,height:base.height})
       else if(fallbackContext){
         canvas.width=base.width;canvas.height=base.height
-        const pixels=!aiVisible&&images&&colorPixels&&analysis?renderSurfaceCPU(source,analysis,colorPixels,material,{compare:Number($('compare').value)/100,showMask:$('mask-toggle').checked}):source.data
+        const pixels=images&&colorPixels&&analysis&&(mode==='camera'||$('mask-toggle').checked)?renderSurfaceCPU(source,analysis,colorPixels,material,{compare:presentation.shaderCompare,showMask:$('mask-toggle').checked}):source.data
         fallbackContext.putImageData(new ImageData(pixels,base.width,base.height),0,0)
       }
       canvas.dataset.depth=analysis?.depth?'ai':'estimated';canvas.dataset.material=material.id
@@ -177,8 +189,10 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     root.querySelectorAll('[data-studio-material]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.studioMaterial===material.id)))
   }
   async function setMaterial(next){
-    invalidateGeneration()
+    if(next.id===material.id&&images)return
+    invalidateGeneration({keepCache:true})
     material=next;const version=++materialVersion;images=null;updateMaterialCard();updateControls()
+    draw()
     status(`Preparing ${material.name} and its light response…`)
     try{
       const loaded=await loadMaterialImages(material)
@@ -186,8 +200,10 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
       images=loaded;renderer?.setMaterial(images,material)
       const tile=document.createElement('canvas');tile.width=Math.min(1024,images.color.width);tile.height=Math.max(1,Math.round(tile.width*images.color.height/images.color.width));const tileContext=tile.getContext('2d',{willReadFrequently:true});tileContext.drawImage(images.color,0,0,tile.width,tile.height);colorPixels=tileContext.getImageData(0,0,tile.width,tile.height)
       if(pbr)await pbr.setMaterial(material,images)
+      const cached=generationCache.get(resultKey())
+      if(cached)presentGenerated(cached)
       draw()
-      if(source&&!loading&&!selecting)status(`${material.name}: ${materialResponse(material).description}`)
+      if(source&&!loading&&!selecting)status(cached?'Your previous AI edit is restored. No new generation was used.':mode==='photo'?`${material.name} is selected. Generate your new upholstery above the photograph.`:`${material.name}: ${materialResponse(material).description}`)
     }catch(error){if(!disposed&&version===materialVersion){images=null;status(error.message);updateControls()}}
   }
   function renderSwatches(){
@@ -197,7 +213,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     $('swatches').innerHTML=filtered.map(item=>`<button type="button" data-studio-material="${item.id}" aria-pressed="${item.id===material.id}" title="${escapeHtml(item.name)}"><span class="studio-sample ${item.preserveTextureColor?'original':''}" style="--sample-color:${item.color}"><img src="${item.image}" alt="" loading="lazy"></span><span>${escapeHtml(item.name)}</span></button>`).join('') || '<p>No fabrics match. Try another name or surface family.</p>'
   }
   async function selectSurface(point=seed,{automatic=false,quiet=false}={}){
-    if(!source||selecting||mode==='3d')return
+    if(!source||selecting||generationPending||generationStarting||mode==='3d')return
     const token=epoch,requestPoint={...point};selecting=true
     if(!quiet){showBusy(true,'Finding the upholstered surface…');status('Selecting the upholstery and protecting the room…')}
     updateControls()
@@ -212,7 +228,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
       mask=mode==='camera'?translateMask(protectedMask,base.width,base.height,(seed.x-requestPoint.x)*base.width,(seed.y-requestPoint.y)*base.height):protectedMask
       if(mode!=='camera')seed=result.point || requestPoint
       rebuildAnalysis();draw()
-      if(!quiet)status(`${material.name} applied. ${analysis?.depth?'AI depth follows the visible surfaces.':'Surface depth is being prepared.'} Drag the divider to compare.`)
+      if(!quiet)status(mode==='photo'?`Upholstery selected. Generate ${material.name} to see the fabric changed in your photograph.`:`${material.name} camera study. Surface depth is being prepared.`)
     }catch(error){if(!disposed&&token===epoch){if(!quiet)status(`${error.message} Open Refine selection to brush the upholstery.`);$('selection-state').textContent='○ Tap or brush to select'}}
     finally{if(!disposed&&token===epoch){selecting=false;showBusy(false);draw()}}
   }
@@ -227,7 +243,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
       if(disposed||token!==epoch||mode==='3d')return
       if(mode==='camera'&&Math.hypot(seed.x-point.x,seed.y-point.y)>.12)return
       depth={values:result.values,width:result.width,height:result.height};rebuildAnalysis();draw()
-      if(mode!=='camera'&&!selecting)status(`${material.name} is depth aligned. ${materialResponse(material).description}`)
+      if(mode!=='camera'&&!selecting)status(`Your original is ready. Generate ${material.name} above the photograph to see the new upholstery.`)
     }catch(error){if(!disposed&&token===epoch){depthFailure=true;status(`AI depth is unavailable on this device. The preview uses estimated placement; your photo is still available. ${error.message.includes('too long')?'Try another photo or reload to retry.':''}`)}}
     finally{if(!disposed&&token===epoch){depthBusy=false;updateControls()}}
   }
@@ -237,25 +253,29 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
       const image=new Image();image.crossOrigin='anonymous';image.src=url;await image.decode()
       if(disposed||token!==epoch)return
       if(image.width*image.height>50_000_000)throw new Error('Choose a photograph smaller than 50 megapixels.')
+      $('original-image').src=image.src;await $('original-image').decode()
+      if(disposed||token!==epoch)return
       original=image;resize(image.width,image.height);context.drawImage(image,0,0,base.width,base.height);source=context.getImageData(0,0,base.width,base.height)
       seed={x:.5,y:.58};renderer?.setSource(base);rebuildAnalysis();$('empty').hidden=true;$('stage-label').hidden=false;$('stage-label').textContent='YOUR PHOTOGRAPH / AUTO MATERIAL'
       $('resolution-note').textContent=`Source ${image.width} × ${image.height} px · 4K / 8K export preserves the room and image proportions. Extra canvas size does not restore missing source detail.`
-      loading=false;draw();void estimateDepth();await selectSurface(seed,{automatic:true})
+      loading=false;draw();await selectSurface(seed,{automatic:true})
     }catch(error){if(!disposed&&token===epoch)status(error.message || 'This image could not open. Try a JPG, PNG or WebP.')}
     finally{if(!disposed&&token===epoch){loading=false;showBusy(false);draw()}}
   }
   async function upload(file){
-    if(!file||exporting)return
+    if(!file||exporting||generationPending||generationStarting)return
     if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>15*1024*1024){status('Choose a JPG, PNG or WebP smaller than 15 MB.');$('upload').value='';return}
     const url=URL.createObjectURL(file)
     try{await loadPhoto(url)}finally{URL.revokeObjectURL(url);$('upload').value=''}
   }
-  function invalidateGeneration(){
+  function invalidateGeneration({keepCache=false}={}){
     generationVersion++;generationAbort?.abort();generationAbort=null
     if(generationPending)showBusy(false)
     const changed=generationPending||generated
     generationPending=false;generated=null;$('generated-image').hidden=true;$('generated-image').removeAttribute('src')
-    if(changed)$('generation-status').textContent='The fabric or selection changed. Generate again for this setup.'
+    if(!keepCache)generationCache.clear()
+    if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null;$('last-export')?.remove()}
+    if(changed)$('generation-status').textContent='Your original is visible. Generate the selected fabric to see the new upholstery.'
   }
   async function refreshGenerationConnection(){
     $('check-ai').disabled=true
@@ -278,23 +298,30 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
       if(disposed||startingVersion!==generationVersion||!analysis?.selected||mode==='3d')return
     }finally{generationStarting=false;if(!disposed)updateControls()}
     const token=generationVersion,photoToken=epoch,chosen=material,selection=new Float32Array(mask),width=base.width,height=base.height
-    const fingerprint=`${photoToken}:${chosen.id}:${token}`
+    const fingerprint=resultKey()
+    if(generated)generationAttempt=null
     if(generationAttempt?.fingerprint!==fingerprint)generationAttempt={fingerprint,key:crypto.randomUUID()}
     generationAbort=new AbortController();const operation=generationAbort
     generationPending=true;showBusy(true,'AI is reconstructing the upholstery…');updateControls()
     try{
       const inputs=generationInputs(original || base,selection,width,height)
-      const result=await generateUpholstery(request,{...inputs,materialId:chosen.id},{key:generationAttempt.key,signal:AbortSignal.any([signal,operation.signal]),onStatus:message=>{if(!disposed&&token===generationVersion){$('generation-status').textContent=message;status(message)}}})
+      const result=await generateUpholstery(request,{...inputs,materialId:chosen.id,nativeSize:$('ai-quality').value},{key:generationAttempt.key,signal:AbortSignal.any([signal,operation.signal]),onStatus:message=>{if(!disposed&&token===generationVersion){$('generation-status').textContent=message;status(message)}}})
       const image=new Image();image.src=result.imageData;await image.decode()
       if(disposed||token!==generationVersion||photoToken!==epoch)return
-      generated={image,width:result.width,height:result.height,mask:selection,maskWidth:width,maskHeight:height,materialId:chosen.id}
-      showGenerated=true;$('generated-image').src=image.src;$('generated-image').alt=`AI reupholstery in ${chosen.name}`
-      $('generation-status').textContent=`AI reupholstery ready in ${chosen.name}. Compare the seams, shape and finish against your original.`
-      $('resolution-note').textContent=`AI master ${result.width} × ${result.height} px. 4K / 8K downloads resize this master and preserve your original room; they do not add native AI detail.`
+      const saved={image,width:result.width,height:result.height,materialId:chosen.id}
+      generationCache.delete(fingerprint);generationCache.set(fingerprint,saved)
+      while(generationCache.size>2||([...generationCache.values()].reduce((total,item)=>total+item.image.src.length,0)>40_000_000&&generationCache.size>1))generationCache.delete(generationCache.keys().next().value)
+      presentGenerated(saved)
       status('AI has reconstructed the upholstery. Drag the divider to compare with the original photograph.')
     }catch(error){
       if(!disposed&&token===generationVersion&&!operation.signal.aborted){if(error.terminal)generationAttempt=null;$('generation-status').textContent=error.message;status(error.message)}
     }finally{if(!disposed&&token===generationVersion){generationPending=false;generationAbort=null;showBusy(false);draw()}}
+  }
+  function presentGenerated(result){
+    generated=result;showGenerated=true;$('mask-toggle').checked=false
+    $('generated-image').src=result.image.src;$('generated-image').alt=`AI reupholstery in ${material.name}`
+    $('generation-status').textContent=`AI photograph ready in ${material.name}. Drag the divider to compare the shape, seams and finish.`
+    $('resolution-note').textContent=`Native AI edit ${result.width} × ${result.height} px. Downloads resize this master to the chosen output size; 8K export adds canvas size, not new detail.`
   }
   async function show3d(){
     replaceSource();mode='3d';updateControls();status('Preparing the 3D material studio…')
@@ -342,6 +369,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     if(!video)return
     const frozen=document.createElement('canvas');frozen.width=video.videoWidth;frozen.height=video.videoHeight;frozen.getContext('2d').drawImage(video,0,0)
     original=frozen;stopCamera();epoch++;segmentation.cancel();depthEngine.cancel();analysisEngine.cancel();analysisRevision++;analysisQueued=false;selecting=false;depthBusy=false
+    $('original-image').src=frozen.toDataURL('image/jpeg',.98)
     context.drawImage(frozen,0,0,base.width,base.height);source=context.getImageData(0,0,base.width,base.height);renderer?.setSource(base);rebuildAnalysis();draw()
     $('stage-label').textContent='FROZEN CAMERA / REFINE & SAVE';status('Frame frozen at the camera’s full resolution. Refine the selection or download your preview.')
   }
@@ -355,7 +383,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   const compareAt=event=>{const rect=canvas.getBoundingClientRect();$('compare').value=Math.round(Math.max(0,Math.min(100,(event.clientX-rect.left)/rect.width*100)));draw()}
   listen(root,'pointerdown',event=>{
     if(event.target.closest('#studio-divider')){event.preventDefault();comparing=true;$('divider').setPointerCapture(event.pointerId);compareAt(event);return}
-    if(event.target!==canvas||!source||selecting||loading||exporting||mode==='3d')return
+    if(event.target!==canvas||!source||selecting||loading||exporting||generationPending||generationStarting||mode==='3d')return
     event.preventDefault();canvas.focus({preventScroll:true});const point=pointFromEvent(event)
     if(mode==='camera'||tool==='ai'){seed=point;void selectSurface(point);return}
     stash();painting=true;lastPoint=null;canvas.setPointerCapture(event.pointerId);paint(point)
@@ -365,7 +393,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   listen(root,'click',async event=>{
     if(event.target.closest('[data-studio-upload]')){$('upload').click();return}
     const swatch=event.target.closest('[data-studio-material]')
-    if(swatch){if(exporting)return;const next=materials.find(item=>item.id===swatch.dataset.studioMaterial);if(!next)return;await setMaterial(next);if(!source&&mode==='photo')void loadPhoto('/assets/products/alessio-three.webp');return}
+    if(swatch){if(exporting||generationPending||generationStarting)return;const next=materials.find(item=>item.id===swatch.dataset.studioMaterial);if(!next)return;await setMaterial(next);if(!source&&mode==='photo')void loadPhoto('/assets/products/alessio-three.webp');return}
     const selectedTool=event.target.closest('[data-studio-tool]')
     if(selectedTool){tool=selectedTool.dataset.studioTool;root.querySelectorAll('[data-studio-tool]').forEach(button=>button.setAttribute('aria-pressed',String(button===selectedTool)));return}
     const brush=event.target.closest('[data-studio-brush]')
@@ -380,7 +408,8 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   listen($('upload'),'change',event=>{void upload(event.target.files[0])})
   listen($('generate'),'click',()=>{void generateAI().catch(error=>{if(!disposed)status(error.message)})})
   listen($('check-ai'),'click',()=>{void refreshGenerationConnection()})
-  listen($('cancel-generation'),'click',()=>{invalidateGeneration();$('generation-status').textContent='AI edit cancelled. Your original and instant preview are still available.';draw()})
+  listen($('cancel-generation'),'click',()=>{invalidateGeneration();$('generation-status').textContent='AI edit cancelled. Your original photograph is still available.';draw()})
+  listen($('ai-quality'),'change',()=>{invalidateGeneration({keepCache:true});const cached=generationCache.get(resultKey());if(cached)presentGenerated(cached);draw()})
   listen($('toggle-result'),'click',()=>{showGenerated=!showGenerated;draw()})
   listen(window,'focus',()=>{if(!generationConnected)void refreshGenerationConnection()})
   listen($('stage'),'dragover',event=>{event.preventDefault();$('stage').classList.add('drag-over')})
@@ -403,7 +432,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     if(event.target===canvas&&event.key==='Enter'){event.preventDefault();void selectSurface(seed,{automatic:true})}
   })
   listen($('export'),'click',async()=>{
-    if(exporting||generationPending||!images||(mode==='photo'&&(analysisBusy||depthBusy||selecting)))return
+    if(exporting||generationPending||(mode!=='photo'&&!images)||(mode==='photo'&&(!generated||analysisBusy||selecting)))return
     exporting=true;updateControls();status('Rendering your high-resolution image…')
     const quality=$('quality').value,exportMaterial=material,exportMode=mode,exportForm=formId,exportImages=images
     try{
@@ -415,10 +444,10 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
       status('Rendering your high-resolution image…')
       await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))
       let result
-      if(generated&&showGenerated&&mode!=='3d'){
+      if(generated&&mode==='photo'){
         const size=exportSize((original || base).naturalWidth || (original || base).width,(original || base).naturalHeight || (original || base).height,quality,Math.min(renderer?.maxDimension || 4096,navigator.deviceMemory&&navigator.deviceMemory<=4?4096:8192))
         const output=document.createElement('canvas');output.width=size.width;output.height=size.height
-        compositeAiResult(output.getContext('2d'),original || base,generated.image,generated.mask,generated.maskWidth,generated.maskHeight)
+        drawGeneratedResult(output.getContext('2d'),generated.image)
         const blob=await new Promise(resolve=>output.toBlob(resolve,'image/png'))
         if(!blob)throw new Error('The AI result could not be encoded. Choose 4K and download again.')
         result={blob,...size,ai:true,masterWidth:generated.width,masterHeight:generated.height}

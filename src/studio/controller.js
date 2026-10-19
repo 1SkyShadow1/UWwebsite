@@ -34,7 +34,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   let epoch=0,materialVersion=0,disposed=false,selecting=false,depthBusy=false,depthFailure=false,loading=false,exporting=false,comparing=false,pbr,pbrPromise
   let analysisRunning=false,analysisQueued=false,analysisRevision=0,analysisBusy=false,analysisWorkerFailed=false
   const lightingWaiters=new Set()
-  let generationConnected=false,generationStarting=false,generationPending=false,generationVersion=0,generationAbort,generationAttempt,generated,showGenerated=true
+  let generationConnected=false,generationStarting=false,generationPending=false,generationVersion=0,generationAbort,generationAttempt,generated,showGenerated=true,generationError=''
   const generationCache=new Map()
   const resultKey=()=>`${epoch}:${analysisRevision}:${material.id}:${$('ai-quality').value}`
   let stream,video,animation,lastFrame=0,lastTrack=0,lastSelection=0,lastDepth=0,previousFrame,cameraStarting=false,studies=[],saveAttempt,exportUrl
@@ -275,7 +275,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     generationPending=false;generated=null;$('generated-image').hidden=true;$('generated-image').removeAttribute('src')
     if(!keepCache)generationCache.clear()
     if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null;$('last-export')?.remove()}
-    if(changed)$('generation-status').textContent='Your original is visible. Generate the selected fabric to see the new upholstery.'
+    if(changed&&!generationError)$('generation-status').textContent='Your original is visible. Generate the selected fabric to see the new upholstery.'
   }
   async function refreshGenerationConnection(){
     $('check-ai').disabled=true
@@ -283,8 +283,8 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
       const capabilities=await request('/api/studio/capabilities',{signal})
       if(disposed)return
       generationConnected=Boolean(capabilities.generation?.configured)
-      if(!generationPending&&!generated)$('generation-status').textContent=generationConnected?(capabilities.generation.provider+' editing is connected. Select the upholstery and generate a clean fabric change.'):(capabilities.generation?.setupMessage || 'AI editing is not connected yet. The local connection page can save your API key without editing .env.')
-    }catch{if(!disposed)$('generation-status').textContent='The AI connection could not be checked. Refresh the connection to retry.'}
+      if(!generationPending&&!generated)$('generation-status').textContent=generationError || (generationConnected?(capabilities.generation.provider+' is configured. Choose your fabric and generate an edited photograph.'):(capabilities.generation?.setupMessage || 'AI editing is not connected yet. The local connection page can save your API key without editing .env.'))
+    }catch{if(!disposed){generationConnected=false;$('generation-status').textContent='The AI connection could not be checked. Refresh the connection to retry.'}}
     finally{if(!disposed){$('check-ai').disabled=false;updateControls()}}
   }
   async function generateAI(){
@@ -302,7 +302,10 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     if(generated)generationAttempt=null
     if(generationAttempt?.fingerprint!==fingerprint)generationAttempt={fingerprint,key:crypto.randomUUID()}
     generationAbort=new AbortController();const operation=generationAbort
-    generationPending=true;showBusy(true,'AI is reconstructing the upholstery…');updateControls()
+    generationPending=true;generationError=''
+    const progress=`Generating ${chosen.name} at ${$('ai-quality').value}. Keep this page open while AI rebuilds the upholstery…`
+    $('generation-status').textContent=progress;status(progress)
+    showBusy(true,'AI is reconstructing the upholstery…');updateControls()
     try{
       const inputs=generationInputs(original || base,selection,width,height)
       const result=await generateUpholstery(request,{...inputs,materialId:chosen.id,nativeSize:$('ai-quality').value},{key:generationAttempt.key,signal:AbortSignal.any([signal,operation.signal]),onStatus:message=>{if(!disposed&&token===generationVersion){$('generation-status').textContent=message;status(message)}}})
@@ -314,11 +317,11 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
       presentGenerated(saved)
       status('AI has reconstructed the upholstery. Drag the divider to compare with the original photograph.')
     }catch(error){
-      if(!disposed&&token===generationVersion&&!operation.signal.aborted){if(error.terminal)generationAttempt=null;$('generation-status').textContent=error.message;status(error.message)}
+      if(!disposed&&token===generationVersion&&!operation.signal.aborted){if(error.terminal)generationAttempt=null;generationError=error.message;$('generation-status').textContent=error.message;status(error.message)}
     }finally{if(!disposed&&token===generationVersion){generationPending=false;generationAbort=null;showBusy(false);draw()}}
   }
   function presentGenerated(result){
-    generated=result;showGenerated=true;$('mask-toggle').checked=false
+    generated=result;showGenerated=true;generationError='';$('mask-toggle').checked=false
     $('generated-image').src=result.image.src;$('generated-image').alt=`AI reupholstery in ${material.name}`
     $('generation-status').textContent=`AI photograph ready in ${material.name}. Drag the divider to compare the shape, seams and finish.`
     $('resolution-note').textContent=`Native AI edit ${result.width} × ${result.height} px. Downloads resize this master to the chosen output size; 8K export adds canvas size, not new detail.`
@@ -409,7 +412,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   listen($('generate'),'click',()=>{void generateAI().catch(error=>{if(!disposed)status(error.message)})})
   listen($('check-ai'),'click',()=>{void refreshGenerationConnection()})
   listen($('cancel-generation'),'click',()=>{invalidateGeneration();$('generation-status').textContent='AI edit cancelled. Your original photograph is still available.';draw()})
-  listen($('ai-quality'),'change',()=>{invalidateGeneration({keepCache:true});const cached=generationCache.get(resultKey());if(cached)presentGenerated(cached);draw()})
+  listen($('ai-quality'),'change',()=>{invalidateGeneration({keepCache:true});const cached=generationCache.get(resultKey());if(cached)presentGenerated(cached);status(cached?'Your previous AI edit is restored. No new generation was used.':`Original photograph. Generate ${material.name} at ${$('ai-quality').value} to see the new upholstery.`);draw()})
   listen($('toggle-result'),'click',()=>{showGenerated=!showGenerated;draw()})
   listen(window,'focus',()=>{if(!generationConnected)void refreshGenerationConnection()})
   listen($('stage'),'dragover',event=>{event.preventDefault();$('stage').classList.add('drag-over')})

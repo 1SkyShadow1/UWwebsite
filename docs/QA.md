@@ -10,6 +10,7 @@ Latest local review: 19 October 2026.
 - Recent edits are cached in the browser with count/byte limits. Returning to a cached fabric/detail restores the existing image without another paid request. Generation locks photo/material/selection changes until completion or explicit cancellation.
 - All 66 automated tests pass and the 84-module production build succeeds. Local browser checks with a mocked provider confirmed an untouched original, disabled pre-generation export, generated comparison, original view, detail-cache restoration and no console errors. Mock images are workflow fixtures, not evidence of AI realism.
 - Live Google token-count validation found that the newer `responseFormat.image` fields require enums rather than the string size/aspect values used by `imageConfig`. The adapter now uses `imageConfig`, which Google accepted with HTTP 200. This compatibility check does not generate an image.
+- The single subsequent 1K live proof reached the corrected endpoint but failed with Google's HTTP 429 quota/billing/rate limit response; no image was returned and no automatic paid retry was made. Live generated realism and native 4K output remain unverified until that API project has usable generation quota. The interface keeps the original on failure, clears stale error text when a new request starts, and preserves the last failure when a configuration-only refresh cannot validate provider quota.
 
 ## Supabase production connection — 19 October 2026
 

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { openDatabase } from './database.mjs'
+import { postgresSchema } from './postgres-schema.mjs'
 
 const failure=(status,message)=>Object.assign(new Error(message),{status})
 const ttl=15*60*1000
@@ -15,9 +16,7 @@ export function createPostgresStore(pool,{now=Date.now,dailyLimit=20,maxActive=2
       try{
         await client.query('BEGIN')
         await client.query('SELECT pg_advisory_xact_lock(81731420)')
-        await client.query('CREATE TABLE IF NOT EXISTS uw_owner_records (owner TEXT PRIMARY KEY, records JSONB NOT NULL DEFAULT \'[]\'::jsonb, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())')
-        await client.query('CREATE TABLE IF NOT EXISTS uw_image_jobs (id TEXT PRIMARY KEY, owner TEXT NOT NULL, request_key TEXT NOT NULL, digest TEXT NOT NULL, created_ms BIGINT NOT NULL, expires_ms BIGINT NOT NULL, result JSONB NOT NULL, UNIQUE(owner,request_key))')
-        await client.query('CREATE INDEX IF NOT EXISTS uw_image_jobs_expiry ON uw_image_jobs(expires_ms)')
+        for (const statement of postgresSchema) await client.query(statement)
         await client.query('COMMIT')
       }catch(error){await client.query('ROLLBACK').catch(()=>{});throw error}
       finally{client.release()}

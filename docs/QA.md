@@ -1,6 +1,14 @@
 # Store and showroom validation
 
-Latest local review: 16 October 2026.
+Latest local review: 19 October 2026.
+
+## Supabase production connection — 19 October 2026
+
+- Created a dedicated Upholstery Warehouse project on the quoted $0/month Supabase Free plan, in the organization selected by the user. Connected it to the storefront's Vercel Production environment through the Marketplace integration; database credentials are stored as Vercel secrets.
+- Applied and queried the server tables. Both have row-level security enabled, and neither `anon` nor `authenticated` has table access. Supabase's security advisor reported only the two expected informational notices for deliberately policy-free server tables; there were no security warnings or errors.
+- Shared schema initialization preserves these restrictions after future deployments. A PostgreSQL regression simulates permissive Supabase default grants, checks that they are revoked, and verifies that row-level security still hides records if SELECT is later granted.
+- All 63 tests pass; the 83-module production build succeeds; all 237 referenced assets exist. Provider tests use mocks and do not charge API credits. Live provider output quality remains unverified.
+- The already-deployed public health and Studio capabilities routes returned HTTP 200 before connection; activating newly connected secrets requires another deployment. Production save/reload validation is a separate post-deployment check.
 
 ## Vercel API routes and persistence — 16 October 2026
 

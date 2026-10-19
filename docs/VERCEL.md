@@ -5,7 +5,7 @@ The Vercel deployment serves the Vite build from `dist/` and sends every `/api/*
 ## One-time dashboard setup
 
 1. Open the project serving `u-wwebsite.vercel.app` in Vercel.
-2. Under **Storage**, connect a Neon Postgres database through the Marketplace. Connect it to the project's **Production** environment. The application accepts the pooled `DATABASE_URL` or `POSTGRES_URL` supplied by the integration.
+2. Under **Storage**, connect a Supabase or Neon Postgres database through the Marketplace. Connect it to the project's **Production** environment. The application accepts the pooled `DATABASE_URL` or `POSTGRES_URL` supplied by the integration. For Supabase, use the **Transaction pooler** connection on port **6543**, with SSL enabled; the public project URL and publishable key are not PostgreSQL credentials.
 3. Under **Settings → Environment Variables**, add `GEMINI_API_KEY` with the Google AI Studio key and select **Production**. This is a server secret: never use a `VITE_` prefix. The encrypted Windows key on your computer is not uploaded to Vercel.
 4. Optional server settings: `AI_IMAGE_PROVIDER=google`, `GOOGLE_IMAGE_MODEL=gemini-3.1-flash-image`, `GOOGLE_IMAGE_SIZE=1K`, `AI_DAILY_GENERATION_LIMIT=20`. The hosted backend defaults to Google and 1K. The generation limit is shared across instances and counts attempts over a rolling 24-hour window.
 5. Deploy the latest `main` commit. Changes to environment variables require a new deployment. Use the repository root as Vercel's Root Directory; `vercel.json` supplies the build, output and API routing settings. Node is pinned to 24.x.
@@ -24,6 +24,8 @@ Missing storage returns HTTP 503 with `STORAGE_NOT_CONFIGURED` for private saves
 ## Storage and concurrency
 
 PostgreSQL stores each browser owner's record set under a row lock. Each request runs the existing validation and SQLite transaction logic in a private, in-memory repository; a successful mutation is committed to PostgreSQL before its HTTP response is released. Failed mutations leave the durable state unchanged. Separate function instances therefore share authoritative selections, swatches and retry references. No SQLite file is written on Vercel.
+
+Both server tables enable row-level security and revoke access from `PUBLIC` and Supabase's `anon`/`authenticated` roles. There are deliberately no client policies: the Node backend connects as the table owner and enforces browser ownership itself. Do not grant these tables to browser clients or put database credentials in `VITE_` variables. The same schema statements live in `server/postgres-schema.mjs` for deployment and automated verification.
 
 Image request claims and results also live in PostgreSQL. The claim is committed before contacting the provider. A retry on another function instance returns the existing job instead of creating another paid request. The originating function awaits completion within its 300-second duration; it does not depend on work continuing after a 202 response. Other instances can retrieve or cancel the owner-private job. A daily attempt limit and two active jobs bound provider use. Interrupted jobs do not automatically retry the provider.
 

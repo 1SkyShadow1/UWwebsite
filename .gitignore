@@ -3,6 +3,7 @@ dist/
 server-assets/
 .data/
 tmp/qa/
+tmp/verification/
 .env
 .env.*
 !.env.example

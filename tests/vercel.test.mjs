@@ -61,6 +61,30 @@ test('Vercel reports missing hosted storage and keys explicitly without writing 
   const selection=await call(base,'/api/selections');assert.equal(selection.status,503);assert.equal(selection.code,'STORAGE_NOT_CONFIGURED')
 })
 
+test('Supabase client roles cannot access private records even with permissive default table grants',async t=>{
+  const {pool,server,call}=await fixture(t)
+  await pool.query('CREATE ROLE anon')
+  await pool.query('CREATE ROLE authenticated')
+  await pool.query('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated')
+  const base=await server({env:{}})
+  assert.equal((await call(base,'/api/shortlist',{method:'PUT',body:{materialIds:['velvet']}})).status,200)
+  for(const table of ['uw_owner_records','uw_image_jobs']){
+    const {rows}=await pool.query('SELECT relrowsecurity FROM pg_class WHERE oid=$1::regclass',[`public.${table}`])
+    assert.equal(rows[0].relrowsecurity,true)
+    for(const role of ['anon','authenticated']){
+      const privileges=await pool.query("SELECT has_table_privilege($1,$2,'SELECT,INSERT,UPDATE,DELETE') AS allowed",[role,`public.${table}`])
+      assert.equal(privileges.rows[0].allowed,false)
+    }
+    // RLS remains a second boundary if a later integration grants SELECT.
+    await pool.query(`GRANT SELECT ON public.${table} TO anon`)
+    const client=await pool.connect()
+    try{
+      await client.query('SET ROLE anon')
+      assert.equal((await client.query(`SELECT * FROM public.${table}`)).rows.length,0)
+    }finally{await client.query('RESET ROLE');client.release()}
+  }
+})
+
 test('durable AI claims enforce retry safety, owner isolation, rolling quotas and cancellation',async t=>{
   const {pool}=await fixture(t);let time=Date.now()
   const store=createPostgresStore(pool,{now:()=>time,dailyLimit:2})

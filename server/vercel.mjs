@@ -6,6 +6,8 @@ import { createPostgresStore } from './postgres-store.mjs'
 import { createPersistentGeneration } from './persistent-generation.mjs'
 import { createStudioGenerationService } from './studio-generation.mjs'
 import { hostedPostgresOptions } from './postgres-connection.mjs'
+import { getAiProvider } from './ai-credentials.mjs'
+import { aiProviderKey } from './ai-providers.mjs'
 
 const json=(res,status,payload)=>{
   res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'})
@@ -32,10 +34,10 @@ export function createVercelHandler({env=process.env,pool,edit,pollMs}={}){
   const limit=Number(env.AI_DAILY_GENERATION_LIMIT || 20)
   if(!Number.isInteger(limit)||limit<1||limit>1000)throw new Error('Set AI_DAILY_GENERATION_LIMIT to a whole number from 1 to 1000.')
   const store=pool?createPostgresStore(pool,{dailyLimit:limit}):null
-  const provider=async()=>env.AI_IMAGE_PROVIDER==='openai'?'openai':'google'
-  const key=async({provider:chosen}={})=>(chosen || await provider())==='google'?(env.GEMINI_API_KEY || env.GOOGLE_API_KEY)?.trim():env.OPENAI_API_KEY?.trim()
+  const provider=()=>getAiProvider({env,path:null,fallback:'google'})
+  const key=async({provider:chosen}={})=>aiProviderKey(chosen || await provider(),env)
   const configured=async()=>Boolean(await key())
-  const local=createStudioGenerationService({getProvider:provider,getKey:key,isConfigured:configured,edit})
+  const local=createStudioGenerationService({getProvider:provider,getKey:key,isConfigured:configured,edit,env})
   const generationService=createPersistentGeneration({store,configured,local,getProvider:provider,pollMs})
   const repositories=new AsyncLocalStorage()
   const repository=new Proxy({}, {get(_target,name){const database=repositories.getStore();if(!database)throw new Error('No request database');return database[name].bind(database)}})

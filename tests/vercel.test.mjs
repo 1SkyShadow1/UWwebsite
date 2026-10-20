@@ -137,3 +137,32 @@ test('hosted AI completes before the response and a retry on another instance re
   assert.equal(retry.data.id,result.data.id);assert.equal(providerCalls,1)
   assert.equal((await call(second,`/api/studio/generations/${result.data.id}`)).data.status,'complete')
 })
+
+test('hosted Pollinations uses its own secret, reports its detail limit and rejects unsupported edits before a durable claim',async t=>{
+  const {server,call,pool}=await fixture(t)
+  const missing=await server({env:{AI_IMAGE_PROVIDER:'pollinations'}})
+  const disconnected=await call(missing,'/api/studio/capabilities')
+  assert.match(disconnected.data.generation.setupMessage,/POLLINATIONS_API_KEY/)
+  const secret='sk_fixture-only-never-send',env={POLLINATIONS_API_KEY:secret,GEMINI_API_KEY:'unused-google-fixture'}
+  const width=256,height=192
+  const image=await sharp({create:{width,height,channels:4,background:'#ccc'}}).png().toBuffer()
+  const pixels=Buffer.alloc(width*height*4,255)
+  for(let y=30;y<160;y++)for(let x=30;x<225;x++)pixels[(y*width+x)*4+3]=0
+  const mask=await sharp(pixels,{raw:{width,height,channels:4}}).png().toBuffer()
+  let calls=0
+  const options={env,pollMs:2,edit:async(prepared,_material,{key,model})=>{
+    calls++;assert.equal(key,secret);assert.equal(model,'black-forest-labs/flux.2-klein-4b')
+    return {image:prepared.image,width,height,model:'offline-fixture'}
+  }}
+  const first=await server(options),second=await server(options)
+  const capabilities=await call(first,'/api/studio/capabilities')
+  assert.equal(capabilities.data.generation.provider,'Pollinations')
+  assert.deepEqual(capabilities.data.generation.supportedNativeSizes,['1K'])
+  assert.ok(!JSON.stringify(capabilities).includes(secret))
+  const body={materialId:'velvet',imageData:`data:image/png;base64,${image.toString('base64')}`,maskData:`data:image/png;base64,${mask.toString('base64')}`,nativeSize:'4K'}
+  assert.equal((await call(first,'/api/studio/generations',{method:'POST',body,headers:{'Idempotency-Key':randomUUID()}})).status,400)
+  assert.equal((await pool.query("SELECT to_regclass('public.uw_image_jobs') AS table_name")).rows[0].table_name,null)
+  const request={method:'POST',body:{...body,nativeSize:'1K'},headers:{'Idempotency-Key':randomUUID()}}
+  const result=await call(first,'/api/studio/generations',request),retry=await call(second,'/api/studio/generations',request)
+  assert.equal(result.data.status,'complete');assert.equal(result.data.id,retry.data.id);assert.equal(calls,1)
+})

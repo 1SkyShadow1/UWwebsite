@@ -12,6 +12,16 @@ The Vercel deployment serves the Vite build from `dist/` and sends every `/api/*
 
 If the Marketplace asks you to choose a plan, review the terms and choose the plan you intend to use. This repository does not provision or purchase hosting or storage automatically.
 
+## Pollinations image editing
+
+To switch providers, add a **Production Secret** named `POLLINATIONS_API_KEY` in Vercel, set `AI_IMAGE_PROVIDER=pollinations`, and redeploy. Use a secret key beginning with `sk_` from [Pollinations keys](https://enter.pollinations.ai/keys), with a small per-key budget and only the chosen image model allowed. Never use a `VITE_` prefix or put the key in an image URL. Existing Google/OpenAI secrets can remain for an explicit provider switch; failed edits never fall back to another paid provider automatically.
+
+The default `POLLINATIONS_IMAGE_MODEL=black-forest-labs/flux.2-klein-4b` is a low-cost **1K proof** model. The detail selector disables unsupported sizes. For native 1K/2K/4K requests, supported server overrides are `black-forest-labs/flux-3-image-klein` or `google/gemini-3.1-flash-image`; these can cost more and require the appropriate account/model permissions. Check the [live model catalog](https://gen.pollinations.ai/image/models) before switching. A 4K/8K download enlarged from a 1K master does not add native AI detail.
+
+Locally, run `npm run configure:ai -- --pollinations` and enter the key in the loopback-only form. Windows encrypts each saved provider credential with current-user DPAPI; switching providers preserves previous connections and upgrades the earlier single-provider file. The saved local key is not uploaded to Vercel.
+
+The server calls `POST https://gen.pollinations.ai/v1/images/edits` with inline original, swatch and selection-guide images, one result, and a base64 response. It does not publish an application-owned public upload URL. The provider processes the submitted images under its own terms. The original room is restored outside the upholstery selection; no fabric shader is applied to the generated upholstery. Invalid images, changed framing, exhausted Pollen/key budgets, unavailable models, rate limits and timeouts leave the original available. Existing private persistence, explicit generation, cancellation and duplicate-safe retries apply to this provider too.
+
 ## Check the deployment
 
 - `/api/health` returns HTTP 200 and `storageConfigured: true` once a database URL is configured. This flag indicates configuration; saving a swatch also verifies database access.

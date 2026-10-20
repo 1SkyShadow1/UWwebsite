@@ -1,4 +1,5 @@
 import { createStudioGenerationService, prepareGeneration, generationDigest, StudioGenerationError } from './studio-generation.mjs'
+import { aiProviderVariable } from './ai-providers.mjs'
 
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 
@@ -6,14 +7,17 @@ export function createPersistentGeneration({store,configured,local=createStudioG
   return {
     async capabilities(){
       const capabilities=await local.capabilities()
-      return {...capabilities,configured:Boolean(store)&&await configured(),persistence:'postgresql',setupMessage:!store?'Hosted storage is not connected. Configure DATABASE_URL in Vercel.':!await configured()?'Add the server-only GEMINI_API_KEY environment variable in Vercel and redeploy.':undefined}
+      const connected=await configured(),variable=aiProviderVariable(await getProvider())
+      return {...capabilities,configured:Boolean(store)&&connected,persistence:'postgresql',setupMessage:!store?'Hosted storage is not connected. Configure DATABASE_URL in Vercel.':!connected?`Add the server-only ${variable} environment variable in Vercel and redeploy.`:undefined}
     },
     async start(owner,body,key,materials,{signal}={}){
       if(!store)throw new StudioGenerationError(503,'Connect PostgreSQL storage in Vercel before generating.')
-      if(!await configured())throw new StudioGenerationError(503,'Add the server-only Gemini API key in Vercel and redeploy.')
+      if(!await configured())throw new StudioGenerationError(503,`Add the server-only ${aiProviderVariable(await getProvider())} environment variable in Vercel and redeploy.`)
       if(!/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(key || ''))throw new StudioGenerationError(400,'Use a unique generation request reference.')
       const material=materials.find(item=>item.id===body.materialId)
       if(!material)throw new StudioGenerationError(400,'Choose a known fabric before generating.')
+      const capabilities=await local.capabilities()
+      if(body.nativeSize&&!capabilities.supportedNativeSizes?.includes(body.nativeSize))throw new StudioGenerationError(400,'Choose a supported AI image detail for the connected model.')
       // Reject invalid inputs before reserving a durable, potentially paid job.
       await prepareGeneration(body,material)
       const provider=await getProvider()

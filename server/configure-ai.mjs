@@ -2,13 +2,14 @@ import http from 'node:http'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { saveAiCredential } from './ai-credentials.mjs'
+import { AI_PROVIDERS, aiProviderName } from './ai-providers.mjs'
 
 const json=(res,status,data)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(data))}
 const sameToken=(a,b)=>{if(typeof a!=='string')return false;const left=Buffer.from(a),right=Buffer.from(b);return left.length===right.length&&timingSafeEqual(left,right)}
 
 export function createAiSetupHandler({token,provider='openai',save,onConnected=()=>{}}){
-  if(!['openai','google'].includes(provider))throw new TypeError('Unsupported AI provider')
-  const providerName=provider==='google'?'Google Gemini':'OpenAI'
+  if(!Object.hasOwn(AI_PROVIDERS,provider))throw new TypeError('Unsupported AI provider')
+  const providerName=aiProviderName(provider)
   const saveConnection=save || (key=>saveAiCredential(key,{provider}))
   return async(req,res)=>{
     const host=req.headers.host || '',remote=req.socket.remoteAddress || ''
@@ -37,7 +38,7 @@ export function createAiSetupHandler({token,provider='openai',save,onConnected=(
 
 if(process.argv[1]&&fileURLToPath(import.meta.url)===process.argv[1]){
   const token=randomBytes(32).toString('hex')
-  const provider=process.argv.includes('--google')?'google':'openai'
+  const provider=process.argv.includes('--pollinations')?'pollinations':process.argv.includes('--google')?'google':'openai'
   const server=http.createServer(createAiSetupHandler({token,provider,onConnected:()=>setTimeout(()=>server.close(),10000).unref()}))
   server.listen(0,'127.0.0.1',()=>console.log(`Open this local connection page: http://127.0.0.1:${server.address().port}/?token=${token}`))
   setTimeout(()=>server.close(),20*60*1000).unref()

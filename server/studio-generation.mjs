@@ -4,12 +4,24 @@ import { resolve } from 'node:path'
 import sharp from 'sharp'
 import { materialResponse } from '../src/studio/material-response.js'
 import { getAiCredential, aiCredentialConfigured, getAiProvider } from './ai-credentials.mjs'
+import { aiProviderName } from './ai-providers.mjs'
 
 export class StudioGenerationError extends Error {
   constructor(status,message){super(message);this.status=status}
 }
 const reject=(status,message)=>{throw new StudioGenerationError(status,message)}
 const allowedFormats=new Set(['png','jpeg','webp'])
+const pollinationsModels=Object.freeze({
+  'black-forest-labs/flux.2-klein-4b':{nativeSizes:['1K'],maximumPixels:2_400_000},
+  'black-forest-labs/flux-3-image-klein':{nativeSizes:['1K','2K','4K'],maximumPixels:20_000_000},
+  'google/gemini-3.1-flash-image':{nativeSizes:['1K','2K','4K'],maximumPixels:20_000_000},
+})
+const defaultPollinationsModel='black-forest-labs/flux.2-klein-4b'
+export function pollinationsModelProfile(model=defaultPollinationsModel){
+  const profile=Object.hasOwn(pollinationsModels,model)?pollinationsModels[model]:null
+  if(!profile)reject(503,'Choose a supported multi-reference editing model for POLLINATIONS_IMAGE_MODEL. See the deployment guide.')
+  return profile
+}
 
 export function generationSize(width,height,maximumEdge=3840){
   if(width/height>3||height/width>3)reject(400,'Crop the photograph closer to the furniture. AI editing supports proportions up to 3:1.')
@@ -97,13 +109,61 @@ export function upholsteryPrompt(material){
   const profile=materialResponse(material)
   return `Edit image 1 only. Image 2 is a close-up reference swatch, not a pattern to paste across the image. Reupholster ONLY the furniture surfaces inside the transparent mask in ${material.name}, ${material.shade}, colour ${material.color}, ${material.type}. ${material.feel || ''} Surface response: ${profile.description}
 Replace the original fabric completely. Reconstruct fitted material on every upholstered panel with realistic yarn or grain scale, perspective foreshortening, fabric tension, subtle folds and clean seams. The swatch is magnified: individual yarns should be fine at furniture scale. Preserve intentional patterns in the chosen fabric, but never make a giant repeating image-space grid. Remove the old upholstery texture, print and any cutout halos. Do not blend the new pattern over the old material.
-Preserve the exact furniture silhouette, camera viewpoint, framing, cushion count and positions, piping, tufting, seams, upholstery panel boundaries and room. Keep bare timber, metal, feet and every non-upholstered object unchanged. Preserve the photograph's direction of illumination, realistic contact shadows, cushion occlusion and light falloff. Generate material-appropriate highlights, including velvet pile or leather reflections, while keeping dark cushion gaps dark. Do not flatten the shape or invent extra cushions. No text, logos, borders or watermark. Return a clean, photorealistic edit aligned to image 1.`
+Preserve the exact furniture silhouette, camera viewpoint, framing, cushion count and positions, piping, tufting, seams, upholstery panel boundaries and room. Preserve only structural details that already exist: never add tufting, buttoning, piping, panel divisions or seams. A smooth back must stay smooth. Do not copy folds or perspective from the close-up swatch. Keep bare timber, metal, feet and every non-upholstered object unchanged. Preserve the photograph's direction of illumination, realistic contact shadows, cushion occlusion and light falloff. Generate material-appropriate highlights, including velvet pile or leather reflections, while keeping dark cushion gaps dark. Do not flatten the shape or invent extra cushions. No text, logos, borders or watermark. Return a clean, photorealistic edit aligned to image 1.`
 }
 
 async function limitedJson(response,maxBytes=90_000_000){
   const chunks=[];let total=0
   for await(const chunk of response.body){total+=chunk.length;if(total>maxBytes)reject(502,'The AI result exceeded the image limit. Try another photograph.');chunks.push(chunk)}
   try{return JSON.parse(Buffer.concat(chunks).toString('utf8'))}catch{reject(502,'The AI provider returned an unreadable response. Try again.')}
+}
+
+async function selectionGuide(prepared){
+  const selection=await decoder(prepared.mask).extractChannel('alpha').raw().toBuffer()
+  for(let p=0;p<selection.length;p++)selection[p]=255-selection[p]
+  return sharp(selection,{raw:{width:prepared.photoInfo.width,height:prepared.photoInfo.height,channels:1}}).png().toBuffer()
+}
+
+const guidedPrompt=material=>upholsteryPrompt(material).replace('inside the transparent mask','inside the white area of image 3')+'\nImage 3 is a selection guide only: white means upholstery to replace, black means protected room. Never reproduce the guide in the output. This is an image edit, not a redesign. Preserve the entire framing of image 1 and every cushion and seam in its original position. Do not zoom, crop, move, reshape or restage the furniture. Return one photographic edit, not a swatch, illustration or rendered texture layer.'
+
+export async function editWithPollinations(prepared,material,{key,signal,model=process.env.POLLINATIONS_IMAGE_MODEL || defaultPollinationsModel,quality='high',fetchImpl=fetch}={}){
+  const profile=pollinationsModelProfile(model),nativeSize=quality==='low'?'1K':prepared.nativeSize || '1K'
+  if(!profile.nativeSizes.includes(nativeSize))reject(400,'This Pollinations model supports a 1K proof. Choose 1K, or configure a 4K editing model on the server.')
+  const edge={'1K':1024,'2K':2048,'4K':4096}[nativeSize]
+  const {width:sourceWidth,height:sourceHeight}=prepared.photoInfo
+  const scale=Math.min(edge/Math.max(sourceWidth,sourceHeight),Math.sqrt(profile.maximumPixels/(sourceWidth*sourceHeight)))
+  const width=Math.max(128,Math.floor(sourceWidth*scale/16)*16),height=Math.max(128,Math.floor(sourceHeight*scale/16)*16)
+  const dataUrl=bytes=>({image_url:`data:image/png;base64,${bytes.toString('base64')}`})
+  const guide=await selectionGuide(prepared)
+  let response
+  try{
+    response=await fetchImpl('https://gen.pollinations.ai/v1/images/edits',{
+      method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'},signal,
+      // Models such as Klein reject `resolution`; the shared edits API accepts
+      // exact pixel dimensions through `size` for these image models.
+      body:JSON.stringify({model,prompt:guidedPrompt(material),image:[dataUrl(prepared.image),dataUrl(prepared.fabric),dataUrl(guide)],size:`${width}x${height}`,quality,n:1,response_format:'b64_json'}),
+    })
+  }catch(error){if(signal?.aborted)throw error;reject(502,'The Pollinations connection was interrupted. Your original photograph is still available.')}
+  if(!response.ok){
+    // Never expose provider diagnostics, uploaded photographs or credentials.
+    if(response.status===401)reject(503,'Pollinations rejected the API key. Reconnect a secret key beginning with sk_.')
+    if(response.status===402)reject(402,'The Pollinations account or key has no available Pollen budget. Check its balance and key budget before generating again.')
+    if(response.status===403)reject(503,'This Pollinations key cannot use the selected image model. Check its model permissions and account tier.')
+    if(response.status===404)reject(503,'This Pollinations editing model is unavailable. Check POLLINATIONS_IMAGE_MODEL on the server.')
+    if(response.status===429)reject(429,'Pollinations is limiting requests. Wait before starting another edit; no automatic paid retry was started.')
+    if(response.status===400)reject(502,'Pollinations could not accept this image edit. Check the configured model or try a clearer photograph.')
+    reject(502,'Pollinations could not finish this edit. Your original photograph is still available; retry later.')
+  }
+  const payload=await limitedJson(response),encoded=payload.data?.[0]?.b64_json
+  if(typeof encoded!=='string'||encoded.length>85_000_000||!encoded.length)reject(502,'Pollinations did not return a usable image. Your original photograph is still available.')
+  const bytes=Buffer.from(encoded,'base64')
+  if(bytes.toString('base64')!==encoded)reject(502,'Pollinations returned an unreadable image. Your original is still available.')
+  try{
+    const metadata=await decoder(bytes).metadata()
+    if(!allowedFormats.has(metadata.format)||metadata.pages>1||metadata.width<128||metadata.height<128||metadata.width*metadata.height>profile.maximumPixels)throw Error('Unsupported result')
+    if(Math.abs(metadata.width/metadata.height-sourceWidth/sourceHeight)/(sourceWidth/sourceHeight)>.04)reject(502,'Pollinations changed the photograph’s framing. Your original is unchanged; try again with a tighter selection.')
+    return {image:await decoder(bytes).png().toBuffer(),width:metadata.width,height:metadata.height,model}
+  }catch(error){if(error.status)throw error;reject(502,'The Pollinations image could not be decoded. Your original photograph is still available.')}
 }
 
 export async function editWithOpenAI(prepared,material,{key,signal,owner,model='gpt-image-2.5-sunburst',quality='high',fetchImpl=fetch}={}){
@@ -207,10 +267,10 @@ export async function compositeGeneration(prepared,generated){
   return {imageData:`data:image/png;base64,${result.toString('base64')}`,width,height,nativeWidth:width,nativeHeight:height,model:generated.model}
 }
 
-export function createStudioGenerationService({getKey=getAiCredential,isConfigured=aiCredentialConfigured,getProvider=getAiProvider,edit,now=Date.now,timeoutMs=240000,maxActive=2,maxCachedBytes=128_000_000,quality='high',maximumEdge=3840}={}){
+export function createStudioGenerationService({getKey=getAiCredential,isConfigured=aiCredentialConfigured,getProvider=getAiProvider,edit,now=Date.now,timeoutMs=240000,maxActive=2,maxCachedBytes=128_000_000,quality='high',maximumEdge=3840,env=process.env}={}){
   if(!['low','high'].includes(quality)||!Number.isInteger(maximumEdge)||maximumEdge<1024||maximumEdge>3840)throw new TypeError('Choose a supported generation quality and edge limit.')
   const jobs=new Map(),ttl=15*60*1000
-  const modelFor=provider=>provider==='google'?(process.env.GOOGLE_IMAGE_MODEL || 'gemini-3.1-flash-image'):(process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2.5-sunburst')
+  const modelFor=provider=>provider==='pollinations'?(env.POLLINATIONS_IMAGE_MODEL || defaultPollinationsModel):provider==='google'?(env.GOOGLE_IMAGE_MODEL || 'gemini-3.1-flash-image'):(env.OPENAI_IMAGE_MODEL || 'gpt-image-2.5-sunburst')
   const trim=()=>{for(const [id,job]of jobs)if(now()-job.created>ttl){job.abort.abort();jobs.delete(id)}}
   const publicJob=job=>({id:job.id,status:job.status,stage:job.stage,error:job.error,materialId:job.materialId,...(job.result || {})})
   const active=job=>['preparing','generating','finishing'].includes(job.status)
@@ -222,7 +282,7 @@ export function createStudioGenerationService({getKey=getAiCredential,isConfigur
       const key=await getKey({provider:job.provider})
       if(!key)reject(503,'Generative AI is not connected. Save your API key using the local connection page.')
       job.status='generating';job.stage='Reupholstering panels, seams and light with AI…'
-      const adapter=edit || (job.provider==='google'?editWithGoogle:editWithOpenAI)
+      const adapter=edit || (job.provider==='pollinations'?editWithPollinations:job.provider==='google'?editWithGoogle:editWithOpenAI)
       const generated=await untilAborted(adapter(prepared,material,{key,signal:job.abort.signal,owner:job.owner,model:modelFor(job.provider),quality}),job.abort.signal)
       if(job.abort.signal.aborted)throw Error('cancelled')
       job.status='finishing';job.stage='Protecting the room and preparing the clean result…'
@@ -238,7 +298,11 @@ export function createStudioGenerationService({getKey=getAiCredential,isConfigur
     }finally{clearTimeout(timer)}
   }
   return {
-    async capabilities(){const provider=await getProvider();return {configured:await isConfigured(),provider:provider==='google'?'Google Gemini':'OpenAI',model:modelFor(provider),quality,requestedNativeSize:provider==='google'?(quality==='low'?'1K':process.env.GOOGLE_IMAGE_SIZE || '1K'):undefined,retentionMinutes:15,maximumNativePixels:provider==='google'?20_000_000:Math.min(8_294_400,maximumEdge*maximumEdge),maximumNativeEdge:provider==='google'?6144:maximumEdge,photosSentOnRequest:true}},
+    async capabilities(){
+      const provider=await getProvider(),model=modelFor(provider)
+      const profile=provider==='pollinations'?pollinationsModelProfile(model):null
+      return {configured:await isConfigured(),provider:aiProviderName(provider),model,quality,supportedNativeSizes:profile?.nativeSizes || ['1K','2K','4K'],requestedNativeSize:provider==='pollinations'?'1K':provider==='google'?(quality==='low'?'1K':env.GOOGLE_IMAGE_SIZE || '1K'):undefined,retentionMinutes:15,maximumNativePixels:profile?.maximumPixels || (provider==='google'?20_000_000:Math.min(8_294_400,maximumEdge*maximumEdge)),maximumNativeEdge:profile?(profile.nativeSizes.includes('4K')?4096:1024):provider==='google'?6144:maximumEdge,photosSentOnRequest:true}
+    },
     async start(owner,body,key,materials){
       trim()
       if(!/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(key || ''))reject(400,'Use a unique generation request reference.')
@@ -246,6 +310,7 @@ export function createStudioGenerationService({getKey=getAiCredential,isConfigur
       if(!material)reject(400,'Choose a known fabric before generating.')
       imageBuffer(body.imageData,'Photograph');imageBuffer(body.maskData,'Selection mask')
       const provider=await getProvider()
+      if(provider==='pollinations'&&!pollinationsModelProfile(modelFor(provider)).nativeSizes.includes(quality==='low'?'1K':body.nativeSize || '1K'))reject(400,'Choose a supported AI image detail for the connected Pollinations model.')
       const digest=generationDigest(provider,body)
       const configured=await isConfigured()
       const previous=[...jobs.values()].find(job=>job.owner===owner&&job.key===key)

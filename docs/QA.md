@@ -1,6 +1,15 @@
 # Store and showroom validation
 
-Latest local review: 19 October 2026.
+Latest local review: 20 October 2026.
+
+## Pollinations editing — 20 October 2026
+
+- Added a server-only Pollinations adapter using the original photo, separate fabric swatch and white-on-black upholstery guide. The API returns inline image data; unselected room pixels are restored from the original, with no fabric shader applied to the generated upholstery.
+- Defaulted to the low-cost FLUX.2 Klein 4B model and a 1K proof. Capabilities disable unsupported native sizes; explicit model overrides support higher-resolution requests. Exports continue to disclose the actual native master and any enlargement.
+- Local Windows connections now preserve multiple encrypted provider keys, with a migration from the earlier single-provider file. Hosted provider selection and missing-key guidance handle Pollinations independently of Google/OpenAI. Failed requests do not automatically retry or switch paid providers.
+- The first two live requests were rejected with HTTP 400 because Klein does not accept the separate `resolution` field. The adapter now uses documented pixel dimensions in `size`, with regression coverage for the omitted field. The subsequent single 1K proof succeeded at 1024 × 768 using the public Alessio sofa and emerald velvet reference. The private local key was never printed or placed in frontend code.
+- The generated image replaces the source fabric with photographic velvet and retains the overall sofa and cushion layout. It introduces some backrest creases and shifts fine seam placement, so it is evidence of a working edit, not pixel-exact geometry or universal realism. The prompt was tightened afterward to explicitly forbid new tufting, seams and panel divisions; that prompt refinement has not consumed another live generation.
+- The full suite contains 71 offline tests. Added coverage includes multi-reference transport, supported model/detail validation, sanitized billing/auth/provider errors, malformed outputs, framing rejection, credential migration, owner isolation, and durable hosted retry behavior. Provider tests use mocks, never paid API requests. The 84-module production build and 237-reference asset check pass.
 
 ## Generated upholstery photographs — 19 October 2026
 

@@ -34,7 +34,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   let epoch=0,materialVersion=0,disposed=false,selecting=false,depthBusy=false,depthFailure=false,loading=false,exporting=false,comparing=false,pbr,pbrPromise
   let analysisRunning=false,analysisQueued=false,analysisRevision=0,analysisBusy=false,analysisWorkerFailed=false
   const lightingWaiters=new Set()
-  let generationConnected=false,generationStarting=false,generationPending=false,generationVersion=0,generationAbort,generationAttempt,generated,showGenerated=true,generationError=''
+  let generationConnected=false,generationStarting=false,generationPending=false,generationVersion=0,generationAbort,generationAttempt,generated,showGenerated=true,generationError='',generationProvider=''
   const generationCache=new Map()
   const resultKey=()=>`${epoch}:${analysisRevision}:${material.id}:${$('ai-quality').value}`
   let stream,video,animation,lastFrame=0,lastTrack=0,lastSelection=0,lastDepth=0,previousFrame,cameraStarting=false,studies=[],saveAttempt,exportUrl
@@ -278,12 +278,26 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     if(changed&&!generationError)$('generation-status').textContent='Your original is visible. Generate the selected fabric to see the new upholstery.'
   }
   async function refreshGenerationConnection(){
+    if(generationStarting||generationPending||exporting||disposed)return
     $('check-ai').disabled=true
     try{
       const capabilities=await request('/api/studio/capabilities',{signal})
       if(disposed)return
+      const providerIdentity=`${capabilities.generation?.provider}:${capabilities.generation?.model}`
+      if(generationProvider&&generationProvider!==providerIdentity){
+        generationError='';generationAttempt=null;invalidateGeneration()
+      }
+      generationProvider=providerIdentity
       generationConnected=Boolean(capabilities.generation?.configured)
-      if(!generationPending&&!generated)$('generation-status').textContent=generationError || (generationConnected?(capabilities.generation.provider+' is configured. Choose your fabric and generate an edited photograph.'):(capabilities.generation?.setupMessage || 'AI editing is not connected yet. The local connection page can save your API key without editing .env.'))
+      const supported=capabilities.generation?.supportedNativeSizes
+      if(Array.isArray(supported)&&supported.length){
+        for(const option of $('ai-quality').options)option.disabled=!supported.includes(option.value)
+        if(!supported.includes($('ai-quality').value)){
+          $('ai-quality').value=supported[0]
+          invalidateGeneration({keepCache:true})
+        }
+      }
+      if(!generationPending&&!generated)$('generation-status').textContent=generationError || (generationConnected?(capabilities.generation.provider+' is configured. '+(supported?.length===1?'This model makes a 1K proof. ':'')+'Choose your fabric and generate an edited photograph.'):(capabilities.generation?.setupMessage || 'AI editing is not connected yet. The local connection page can save your API key without editing .env.'))
     }catch{if(!disposed){generationConnected=false;$('generation-status').textContent='The AI connection could not be checked. Refresh the connection to retry.'}}
     finally{if(!disposed){$('check-ai').disabled=false;updateControls()}}
   }

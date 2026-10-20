@@ -2,11 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, readFile, unlink, rmdir } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile, unlink, rmdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import sharp from 'sharp'
-import { createStudioGenerationService, prepareGeneration, editWithOpenAI, editWithGoogle, compositeGeneration, generationSize } from '../server/studio-generation.mjs'
+import { createStudioGenerationService as generationService, prepareGeneration, editWithOpenAI, editWithGoogle, compositeGeneration, generationSize } from '../server/studio-generation.mjs'
 import { photoPresentation } from '../src/studio/photo-presentation.js'
 import { createAiSetupHandler } from '../server/configure-ai.mjs'
 import { saveAiCredential, getAiCredential, getAiProvider } from '../server/ai-credentials.mjs'
@@ -16,6 +16,7 @@ import { materials } from '../src/data/materials.js'
 import { generateUpholstery } from '../src/studio/generative.js'
 
 const material=materials.find(item=>item.id==='velvet'),fakeKey='sk-test-credential-never-send-to-a-provider'
+const createStudioGenerationService=options=>generationService({getProvider:async()=>'openai',...options})
 const url=bytes=>`data:image/png;base64,${bytes.toString('base64')}`
 async function imageFixture(){
   const width=256,height=192
@@ -140,13 +141,23 @@ test('Windows local credentials round-trip through DPAPI without plaintext on di
   const directory=await mkdtemp(join(tmpdir(),'uw-ai-credential-test-')),path=join(directory,'credential.json')
   t.after(async()=>{await unlink(path).catch(()=>{});await rmdir(directory)})
   await saveAiCredential(fakeKey,{path})
-  assert.ok(!(await readFile(path,'utf8')).includes(fakeKey))
+  const firstRecord=await readFile(path,'utf8')
+  assert.ok(!firstRecord.includes(fakeKey))
   assert.equal(await getAiCredential({path,env:{}}),fakeKey)
+  // Upgrade an existing single-provider connection without losing its key.
+  const {credentials}=JSON.parse(firstRecord)
+  await writeFile(path,JSON.stringify({version:1,provider:'openai',protection:'windows-dpapi-current-user',ciphertext:credentials.openai}))
   await saveAiCredential(fakeKey,{path,provider:'google'})
   assert.equal(await getAiProvider({path,env:{}}),'google')
   assert.equal(await getAiCredential({path,env:{}}),fakeKey)
-  assert.equal(await getAiCredential({path,env:{},provider:'openai'}),null)
+  assert.equal(await getAiCredential({path,env:{},provider:'openai'}),fakeKey)
   assert.equal(await getAiCredential({path,env:{OPENAI_API_KEY:'other-key'}}),fakeKey)
+  const pollinationsKey='sk_test-pollinations-not-a-real-key'
+  await saveAiCredential(pollinationsKey,{path,provider:'pollinations'})
+  assert.equal(await getAiProvider({path,env:{}}),'pollinations')
+  assert.equal(await getAiCredential({path,env:{}}),pollinationsKey)
+  assert.equal(await getAiCredential({path,env:{},provider:'google'}),fakeKey)
+  assert.ok(!(await readFile(path,'utf8')).includes(pollinationsKey))
 })
 
 test('Google image editing sends an opaque selection guide, one photo and one swatch without putting the key in the URL',async()=>{

@@ -91,7 +91,8 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     $('part-type').disabled=locked||Boolean(partDraft)
     $('keep-rest').disabled=locked||Boolean(partDraft)||!parts.length
     $('redraw-part').hidden=$('remove-part').hidden=!activePartId||Boolean(partDraft)
-    $('redraw-part').disabled=$('remove-part').disabled=locked
+    $('redraw-part').disabled=locked||loading||selecting||!selected
+    $('remove-part').disabled=locked
     $('outline-actions').hidden=!partDraft
     $('finish-part').disabled=!partDraft||!validOutline(partDraft.points)
     $('undo-point').disabled=!partDraft?.points.length
@@ -118,7 +119,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
       $('generated-image').hidden=!aiVisible
       $('generated-image').style.clipPath=`inset(0 0 0 ${$('compare').value}%)`
       $('stage-label').textContent=presentation.label
-      canvas.setAttribute('aria-label',aiVisible?`Original and AI reupholstery in ${material.name}. Drag the divider to compare.`:'Original furniture photograph. Tap upholstery to refine the selection before generating.')
+      canvas.setAttribute('aria-label',aiVisible?`${parts.length?'Original and AI reupholstery with individually selected part fabrics':`Original and AI reupholstery in ${baseMaterial.name}`}. Drag the divider to compare.`:'Original furniture photograph. Tap upholstery to refine the selection before generating.')
       if(renderer&&(mode==='camera'||$('mask-toggle').checked))renderer.render({compare:presentation.shaderCompare,showMask:$('mask-toggle').checked,width:base.width,height:base.height})
       else if(fallbackContext){
         canvas.width=base.width;canvas.height=base.height
@@ -225,7 +226,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     $('parts-help').textContent=part?`${part.type} ${parts.indexOf(part)+1} is selected. Choose its fabric from the library, or redraw its outline.`:'Choose the main fabric, or outline a separate cushion, seat or panel.'
   }
   function startPart(existing){
-    if(!source||!analysis?.selected||generationPending||generationStarting||exporting||partDraft||(!existing&&parts.length>=partLimit))return
+    if(!source||!analysis?.selected||selecting||loading||generationPending||generationStarting||exporting||partDraft||(!existing&&parts.length>=partLimit))return
     previousPartId=activePartId
     partDraft={id:existing?.id || crypto.randomUUID(),type:existing?.type || $('part-type').value,materialId:existing?.materialId || material.id,points:[],cursor:{x:.5,y:.5}}
     activePartId=partDraft.id;showGenerated=false;$('mask-toggle').checked=false
@@ -405,7 +406,8 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
       updateControls()
       await waitForLighting()
       if(disposed||startingVersion!==generationVersion||!analysis?.selected||mode==='3d')return
-    }finally{generationStarting=false;if(!disposed)updateControls()}
+    }catch(error){if(!disposed){generationError=error.message;$('generation-status').textContent=error.message;status(error.message)}return}
+    finally{generationStarting=false;if(!disposed)updateControls()}
     const token=generationVersion,photoToken=epoch,chosen=baseMaterial,width=base.width,height=base.height
     let regions
     try{regions=parts.length?buildPartRegions(mask,width,height,parts,{keepRest:$('keep-rest').checked}):null}

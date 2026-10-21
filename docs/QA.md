@@ -141,6 +141,14 @@ The supplied logo is used unchanged in the header, footer and loading screen. Sh
 - Checked both homepage themes at 1440px, and the homepage, materials, planner, contact, furniture and Studio in dark mode at 390px. The 320px light theme check found and repaired a clipped menu button; all header controls now fit.
 - Verified pure black computed backgrounds, the supplied logo loading, gold controls with black labels, and neutral Studio surfaces. Browser checks reported no errors or warnings in the reviewed flows.
 
-## Configuration boundaries
+## Studio detail and separate fabrics — 21 October 2026
+
+- The full 78-test suite passed; the final 18 focused provider/part/hosted regressions passed after the last input-validation changes. The production build passed with 86 modules and 12 entries; all 237 referenced assets exist.
+- Verified per-part fabric assignment, outline cancellation, keyboard drawing, protection of unassigned upholstery, saved recipe restoration, and generation guards for missing outlines. Offline workflow tests exercised a 2048 × 1536 fixture; that fixture is not evidence of AI image quality.
+- Commit `9f6600a` deployed successfully to Vercel. Production reports 1K/2K/4K routes and six parts. A two-part recipe with native 4K detail was saved on the live backend, reloaded and restored with both fabrics intact and outlines correctly required again. Normal 3D rendering still loads its matched material maps after the photograph-mode optimizations.
+- Exactly one approved live request targeted Flux 3 Image Klein at 2048 × 1536 with five references and an estimated 0.028312 Pollen, below the approved 0.05 cap. Pollinations returned HTTP 402 for insufficient account/key budget. No image was generated, no automatic retry ran, and the UI restored controls with a clear error. Native high-detail quality, multi-material AI fidelity and provider processing speed remain unverified until the account has budget. No 4K paid request was made.
+- Local preparation, transport and progress handling were improved; no fixed provider latency claim is made. Physical camera access remains outside this browser check.
+
+## Earlier configuration boundaries
 
 AI Studio's image-editing adapter and encrypted local connection are implemented, but the live request is currently blocked by the API project's quota or rate limit. The older standalone visualiser and email/CRM forwarding remain unconnected. Enquiries are persisted and available with `npm run inbox`. Hardware camera access and 8th Wall tracking were not exercised; these require the intended device, browser permissions and configuration. Material previews and planning allowances remain indicative. No live hosting deployment was performed.

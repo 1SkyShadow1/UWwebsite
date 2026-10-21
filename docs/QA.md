@@ -149,6 +149,12 @@ The supplied logo is used unchanged in the header, footer and loading screen. Sh
 - Exactly one approved live request targeted Flux 3 Image Klein at 2048 × 1536 with five references and an estimated 0.028312 Pollen, below the approved 0.05 cap. Pollinations returned HTTP 402 for insufficient account/key budget. No image was generated, no automatic retry ran, and the UI restored controls with a clear error. Native high-detail quality, multi-material AI fidelity and provider processing speed remain unverified until the account has budget. No 4K paid request was made.
 - Local preparation, transport and progress handling were improved; no fixed provider latency claim is made. Physical camera access remains outside this browser check.
 
+## Shared header readability — 21 October 2026
+
+The desktop logo increases from 236 to 300 CSS pixels, the navigation text from 12 to 14 pixels, and the header icons from 20 to 24 pixels. Header controls have 44-pixel touch targets. Shared announcement/header height variables keep page content, sticky tools and the expanded navigation aligned.
+
+The phone header uses a dedicated logo row and exposes all six controls instead of hiding favourites and swatches. Verified actual CSS viewport widths of 320, 390, 652 and 1441 pixels, accounting for Windows display scaling: controls fit, announcement text fits, and no page overflow occurs. Desktop navigation remains visible at the desktop breakpoint; the smaller-screen menu has 16-pixel links and closes with Escape. Both themes retain a black branded header. Navigation from Home to Materials preserved the larger logo and correct content offset. Browser checks reported no errors or warnings; the production build passed. No backend changes are required.
+
 ## Earlier configuration boundaries
 
 AI Studio's image-editing adapter and encrypted local connection are implemented, but the live request is currently blocked by the API project's quota or rate limit. The older standalone visualiser and email/CRM forwarding remain unconnected. Enquiries are persisted and available with `npm run inbox`. Hardware camera access and 8th Wall tracking were not exercised; these require the intended device, browser permissions and configuration. Material previews and planning allowances remain indicative. No live hosting deployment was performed.

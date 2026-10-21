@@ -11,7 +11,7 @@ import { calculateAllowance, serviceOptions, tiers } from '../src/data/planning.
 import { applyShoppingOperations, selectionDetails, validateSelection, validateShoppingOperations } from '../src/data/shopping.js'
 import { receiptFor } from './enquiries.mjs'
 import { studioForms, studioLights, materialResponse } from '../src/studio/material-response.js'
-import { createStudioGenerationService } from './studio-generation.mjs'
+import { createStudioGenerationService, validatePartFabrics } from './studio-generation.mjs'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 
@@ -143,7 +143,21 @@ export function createApiHandler({ database, corsOrigin = process.env.CORS_ORIGI
         const owner=ownerFor(req),body=await readJson(req,24_000_000)
         const operation=new AbortController(),cancel=()=>operation.abort()
         res.on?.('close',cancel)
-        try{return send(res,202,{data:await generationService.start(owner,body,req.headers['idempotency-key'],materials,{signal:operation.signal})})}
+        let streaming=false
+        const onProgress=progress=>{
+          if(!req.headers.accept?.includes('application/x-ndjson')||operation.signal.aborted)return
+          if(!streaming){res.writeHead(200,{'content-type':'application/x-ndjson; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','x-accel-buffering':'no'});res.flushHeaders?.();streaming=true}
+          res.write(JSON.stringify({progress})+'\n')
+        }
+        try{
+          const result=await generationService.start(owner,body,req.headers['idempotency-key'],materials,{signal:operation.signal,onProgress})
+          if(!streaming)return send(res,202,{data:result})
+          const bytes=Buffer.from(JSON.stringify({data:result})+'\n')
+          return await pipeline(Readable.from((function*(){for(let i=0;i<bytes.length;i+=65536)yield bytes.subarray(i,i+65536)})()),res).catch(()=>res.destroy())
+        }catch(error){
+          if(!streaming)throw error
+          res.end(JSON.stringify({error:error.status?error.message:'The hosted AI connection was interrupted. Retry to recover your edit.',status:error.status || 503})+'\n')
+        }
         finally{res.removeListener?.('close',cancel)}
       }
       if(path.startsWith('/api/studio/generations/')){
@@ -164,7 +178,9 @@ export function createApiHandler({ database, corsOrigin = process.env.CORS_ORIGI
           const submission=submissionFor(req,owner,body,'studio-design'),previous=previousSubmission(db(),submission,owner)
           if(previous)return send(res,200,{data:previous})
           const material=materials.find(item=>item.id===body.materialId)
-          const design={id:randomUUID(),version:1,name:textField(body.name || `${material.name} study`,'Study name',{min:2,max:100}),materialId:body.materialId,formId:body.formId,lighting:body.lighting,mode:body.mode,quality:body.quality,createdAt:new Date().toISOString()}
+          const components=validatePartFabrics(body)
+          if(!['1K','2K','4K'].includes(body.nativeSize || '1K'))throw new HttpError(400,'Choose a supported AI image detail.')
+          const design={id:randomUUID(),version:2,name:textField(body.name || `${material.name} study`,'Study name',{min:2,max:100}),materialId:body.materialId,formId:body.formId,lighting:body.lighting,mode:body.mode,quality:body.quality,nativeSize:body.nativeSize || '1K',components,keepRest:body.keepRest===true,createdAt:new Date().toISOString()}
           db().transaction(()=>{db().put('studio-design',design.id,owner,design);if(submission.id)db().put('submission',submission.id,owner,{digest:submission.digest,response:design,createdAt:design.createdAt})})
           return send(res,201,{data:design})
         }

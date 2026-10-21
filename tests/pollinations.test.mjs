@@ -40,7 +40,7 @@ test('Pollinations receives three inline references, one low-cost image request 
 
 test('Pollinations rejects unsupported native sizes and models before contacting the provider',async()=>{
   const {prepared}=await fixture();let calls=0
-  const options={key,fetchImpl:async()=>{calls++;throw Error('should not run')}}
+  const options={key,model:'black-forest-labs/flux.2-klein-4b',fetchImpl:async()=>{calls++;throw Error('should not run')}}
   await assert.rejects(editWithPollinations({...prepared,nativeSize:'4K'},material,options),error=>error.status===400)
   await assert.rejects(editWithPollinations(prepared,material,{...options,model:'__proto__'}),error=>error.status===503)
   assert.equal(calls,0)
@@ -69,16 +69,22 @@ test('Pollinations credentials and job metadata stay server-side and unsupported
   const env={POLLINATIONS_API_KEY:key},provider=await getAiProvider({path:null,env})
   assert.equal(provider,'pollinations');assert.equal(await getAiCredential({path:null,env}),key)
   assert.equal(await getAiProvider({path:null,env:{...env,AI_IMAGE_PROVIDER:'google'}}),'google')
-  const {body,image}=await fixture();let calls=0
-  const service=createStudioGenerationService({getProvider:async()=>provider,isConfigured:async()=>true,getKey:async()=>key,env,edit:async prepared=>{calls++;return {image,width:prepared.photoInfo.width,height:prepared.photoInfo.height,model:'fixture'}}})
+  const {body,image}=await fixture();let calls=0;const models=[]
+  const service=createStudioGenerationService({getProvider:async()=>provider,isConfigured:async()=>true,getKey:async()=>key,env,edit:async(prepared,_material,{model})=>{calls++;models.push(model);return {image,width:prepared.photoInfo.width,height:prepared.photoInfo.height,model}}})
   t.after(()=>service.dispose())
   const capabilities=await service.capabilities()
-  assert.equal(capabilities.provider,'Pollinations');assert.deepEqual(capabilities.supportedNativeSizes,['1K'])
+  assert.equal(capabilities.provider,'Pollinations');assert.deepEqual(capabilities.supportedNativeSizes,['1K','2K','4K'])
   assert.ok(!JSON.stringify(capabilities).includes(key))
-  await assert.rejects(service.start('owner',{...body,nativeSize:'4K'},randomUUID(),materials),error=>error.status===400)
+  await assert.rejects(service.start('owner',{...body,nativeSize:'8K'},randomUUID(),materials),error=>error.status===400)
   const requestKey=randomUUID(),job=await service.start('owner',body,requestKey,materials)
   assert.equal((await service.start('owner',body,requestKey,materials)).id,job.id)
   for(let i=0;i<300&&!['complete','failed'].includes(service.get('owner',job.id).status);i++)await new Promise(resolve=>setTimeout(resolve,5))
   assert.equal(service.get('owner',job.id).status,'complete');assert.equal(calls,1)
   assert.throws(()=>service.get('other-owner',job.id),/unavailable/)
+  for(const nativeSize of ['2K','4K']){
+    const next=await service.start('owner',{...body,nativeSize},randomUUID(),materials)
+    for(let i=0;i<300&&!['complete','failed'].includes(service.get('owner',next.id).status);i++)await new Promise(resolve=>setTimeout(resolve,5))
+    assert.equal(service.get('owner',next.id).status,'complete')
+  }
+  assert.deepEqual(models,['black-forest-labs/flux.2-klein-4b','black-forest-labs/flux-3-image-klein','black-forest-labs/flux-3-image-klein'])
 })

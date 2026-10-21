@@ -8,6 +8,8 @@ import { createVercelHandler } from '../server/vercel.mjs'
 import { createPostgresStore } from '../server/postgres-store.mjs'
 import { hostedPostgresOptions } from '../server/postgres-connection.mjs'
 import { Client } from 'pg'
+import { prepareGeneration } from '../server/studio-generation.mjs'
+import { readProgressJson } from '../src/lib/progress-json.js'
 
 test('Supabase pooler URLs retain CA and hostname verification when pg parses integration SSL parameters',()=>{
   for(const host of ['aws-0-eu-west-1.pooler.supabase.com','db.exampleproject.supabase.co']){
@@ -143,7 +145,7 @@ test('hosted Pollinations uses its own secret, reports its detail limit and reje
   const missing=await server({env:{AI_IMAGE_PROVIDER:'pollinations'}})
   const disconnected=await call(missing,'/api/studio/capabilities')
   assert.match(disconnected.data.generation.setupMessage,/POLLINATIONS_API_KEY/)
-  const secret='sk_fixture-only-never-send',env={POLLINATIONS_API_KEY:secret,GEMINI_API_KEY:'unused-google-fixture'}
+  const secret='sk_fixture-only-never-send',env={POLLINATIONS_API_KEY:secret,GEMINI_API_KEY:'unused-google-fixture',POLLINATIONS_IMAGE_MODEL:'black-forest-labs/flux.2-klein-4b'}
   const width=256,height=192
   const image=await sharp({create:{width,height,channels:4,background:'#ccc'}}).png().toBuffer()
   const pixels=Buffer.alloc(width*height*4,255)
@@ -165,4 +167,39 @@ test('hosted Pollinations uses its own secret, reports its detail limit and reje
   const request={method:'POST',body:{...body,nativeSize:'1K'},headers:{'Idempotency-Key':randomUUID()}}
   const result=await call(first,'/api/studio/generations',request),retry=await call(second,'/api/studio/generations',request)
   assert.equal(result.data.status,'complete');assert.equal(result.data.id,retry.data.id);assert.equal(calls,1)
+})
+
+test('hosted 2K edits reuse validated inputs and stream owner-private progress before returning a duplicate-safe result',async t=>{
+  const {server,owner}=await fixture(t)
+  const width=256,height=192,image=await sharp({create:{width,height,channels:3,background:'#aaa'}}).png().toBuffer()
+  const pixels=Buffer.alloc(width*height*4,255);for(let y=30;y<160;y++)for(let x=30;x<225;x++)pixels[(y*width+x)*4+3]=0
+  const mask=await sharp(pixels,{raw:{width,height,channels:4}}).png().toBuffer()
+  let preparedOnce,calls=0
+  const base=await server({env:{POLLINATIONS_API_KEY:'offline'},pollMs:10,prepare:async(...args)=>{preparedOnce=await prepareGeneration(...args);return preparedOnce},edit:async(prepared,_material,{model})=>{
+    assert.equal(prepared,preparedOnce);assert.equal(model,'black-forest-labs/flux-3-image-klein');calls++
+    await new Promise(resolve=>setTimeout(resolve,60))
+    return {image,width,height,model}
+  }})
+  const body={materialId:'velvet',nativeSize:'2K',imageData:`data:image/png;base64,${image.toString('base64')}`,maskData:`data:image/png;base64,${mask.toString('base64')}`},key=randomUUID()
+  const headers={Authorization:`Bearer ${owner}`,'Content-Type':'application/json',Accept:'application/x-ndjson','Idempotency-Key':key}
+  const response=await fetch(base+'/api/studio/generations',{method:'POST',headers,body:JSON.stringify(body)}),progress=[]
+  assert.match(response.headers.get('content-type'),/application\/x-ndjson/)
+  const result=await readProgressJson(response,value=>progress.push(value))
+  assert.equal(result.data.status,'complete');assert.ok(progress.length>0);assert.ok(progress[0].id)
+  assert.ok(!JSON.stringify(progress).includes('imageData'))
+  const retry=await fetch(base+'/api/studio/generations',{method:'POST',headers,body:JSON.stringify(body)}).then(response=>response.json())
+  assert.equal(retry.data.id,result.data.id);assert.equal(calls,1)
+})
+
+test('saved part-fabric recipes survive function instances without saving photographs, masks or outlines',async t=>{
+  const {server,call}=await fixture(t),first=await server({env:{}}),second=await server({env:{}})
+  const body={materialId:'velvet',formId:'wingback',lighting:'daylight',mode:'photo',quality:'4k',nativeSize:'4K',keepRest:true,name:'Separate cushion materials',components:[{id:'cushion-1',type:'Cushion',materialId:'leather',points:[{x:.1,y:.2}]}],imageData:'private-photo-not-for-storage',regionData:'private-outline-not-for-storage'}
+  const headers={'Idempotency-Key':randomUUID()},saved=await call(first,'/api/studio/designs',{method:'POST',body,headers})
+  assert.equal(saved.status,201);assert.equal(saved.data.nativeSize,'4K');assert.equal(saved.data.keepRest,true)
+  assert.deepEqual(saved.data.components,[{id:'cushion-1',type:'Cushion',materialId:'leather'}])
+  assert.equal(saved.data.imageData,undefined);assert.equal(saved.data.regionData,undefined)
+  const restored=await call(second,'/api/studio/designs')
+  assert.equal(restored.data[0].id,saved.data.id);assert.deepEqual(restored.data[0].components,saved.data.components)
+  assert.deepEqual((await call(second,'/api/studio/designs',{key:randomUUID()+randomUUID()})).data,[])
+  assert.equal((await call(first,'/api/studio/designs',{method:'POST',body:{...body,components:[{...body.components[0],materialId:'unknown'}]},headers:{'Idempotency-Key':randomUUID()}})).status,400)
 })

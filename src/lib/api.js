@@ -1,3 +1,5 @@
+import { readProgressJson } from './progress-json.js'
+
 const base = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
 let browserKey
 
@@ -11,7 +13,7 @@ function privateKey() {
   return browserKey
 }
 
-export async function request(path, { method = 'GET', body, signal, headers = {}, keepalive = false, timeoutMs = 12000 } = {}) {
+export async function request(path, { method = 'GET', body, signal, headers = {}, keepalive = false, timeoutMs = 12000, onProgress } = {}) {
   let response
   try {
     response = await fetch(`${base}${path}`, {
@@ -25,10 +27,10 @@ export async function request(path, { method = 'GET', body, signal, headers = {}
     if (signal?.aborted) throw error
     throw new Error('The workshop connection is unavailable. Your work is still here; please try again.')
   }
-  const payload = await response.json().catch(() => ({}))
-  if (!response.ok) {
+  const payload = response.headers.get('content-type')?.includes('application/x-ndjson')?await readProgressJson(response,onProgress):await response.json().catch(() => ({}))
+  if (!response.ok || payload.error) {
     const error = new Error(payload.error || 'Something went wrong. Please try again.')
-    error.status = response.status
+    error.status = payload.status || response.status
     error.retryAfter = Number(response.headers.get('retry-after')) || 0
     throw error
   }

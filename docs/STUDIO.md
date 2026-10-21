@@ -1,6 +1,14 @@
 # Material Studio
 
-The 16 October 2026 rendering revision is scoped to AI Studio and its material processing. Other store pages retain their behaviour.
+The October 2026 revisions are scoped to AI Studio and its material processing. Hosted persistence and provider deployment are described in [VERCEL.md](VERCEL.md).
+
+## Current photograph workflow
+
+Photograph mode shows the original until an explicit AI generation completes. It skips unused PBR texture downloads and local relighting analysis. The backend prepares inputs once, caches prepared swatches in a bounded cache and sends compact JPEG references. Actual processing stages stream to the browser alongside elapsed time; provider queue time remains variable. Pollinations routes 1K to Flux 2 Klein and 2K/4K to Flux 3 Image Klein unless a server override pins a model. Higher detail requires paid-model access and uses more credits.
+
+Choose the main fabric, select a part type and outline a cushion, seat, backrest, arm, footstool or other panel. Each part card has its own fabric, redraw and remove actions. Up to six parts are supported with Google or Pollinations. Later outlines win overlaps; all outlines stay clipped to the main upholstery selection. Keep unassigned upholstery original to change only the outlined parts. Every part and swatch is submitted in one edit. OpenAI connections explicitly reject this unsupported part workflow.
+
+Tap corners and finish the outline, or use the focused photograph's keyboard crosshair: arrows move, Shift makes larger steps, Space adds a corner, Enter finishes, Backspace removes a corner and Escape cancels. Version 2 saved recipes preserve fabrics and native detail, but contain no photographs, masks or outlines. Restored parts must be outlined again before generation. Actual returned pixel dimensions are shown; 4K/8K export can enlarge a smaller master without inventing native detail.
 
 ## Generative upholstery replacement
 
@@ -8,7 +16,7 @@ Google Gemini can be selected with `npm run configure:ai -- --google`. Its key f
 
 The Google adapter uses Google's Generate Content REST API with the original photograph, fabric swatch and an opaque white-edit/black-protect selection guide. Gemini treats the guide as an image reference rather than a strict inpainting mask; the server therefore restores protected room pixels and rejects excessive framing changes. Google quota, credentials, filtered outputs and missing images have sanitized errors. Switching the saved provider changes subsequent jobs; each running job keeps its original provider. No provider request is made when saving a key. See [Google's image editing documentation](https://ai.google.dev/gemini-api/docs/generate-content/image-generation). The OpenAI-specific configuration and limits below apply when OpenAI is selected.
 
-The instant local preview remains available while choosing fabrics. Generate AI reupholstery runs a separate server-side image edit, using the untouched photograph, transparent upholstery mask and a separate colour-matched catalogue swatch. The prompt asks the model to reconstruct fitted fabric, fine yarn scale, panel direction, seams, contact shadows and the selected material's light response. The old shader output is never an input to the image edit, and the generated upholstery is not tinted or textured again. Protected room pixels are restored from the original photograph. The comparison slider works with either result.
+Generate AI reupholstery runs a server-side image edit using the untouched photograph, upholstery selection and separate colour-matched catalogue swatches. The prompt asks the model to reconstruct fitted fabric, fine yarn scale, panel direction, seams, contact shadows and the selected material's light response. Shader output is never an input to the image edit, and generated upholstery is not tinted or textured again. Protected room pixels are restored from the original photograph. The comparison slider compares the original with the completed edit.
 
 On Windows, run `npm run configure:ai`, open the printed local URL and save the key in its password field. The helper uses a short-lived loopback listener and an unguessable session token. Windows DPAPI encrypts the credential for the current account in the ignored `.data/studio-ai-provider.json` file. It cannot be moved to another account or deployed as a shared credential. Saving a connection makes no image request. The helper closes shortly after saving; Refresh AI connection in Studio discovers it without restarting the site.
 
@@ -24,7 +32,7 @@ Generative editing can alter fine seams or edges despite the prompt and mask. Co
 
 ## Rendering pipeline
 
-Photos use local MediaPipe Magic Touch selection and a local quantized Depth Anything V2 Small model. Automatic selection scores several candidate points, merges agreeing object predictions, repairs fine mask gaps and conservatively removes thin lower supports. Lighting analysis retains coherent dark creases while suppressing fine source print. Brush, eraser and selection undo/redo remain under Refine selection. The before/after comparison is the only range slider.
+Photos use local MediaPipe Magic Touch selection. Automatic selection scores several candidate points, merges agreeing object predictions, repairs fine mask gaps and conservatively removes thin lower supports. The local quantized Depth Anything V2 Small model and relighting pipeline support camera studies; AI photographs do not need that lighting analysis. Brush, eraser and selection undo/redo remain under Refine selection. The before/after comparison is the only range slider.
 
 The depth model runs in a separate worker using Transformers.js and ONNX WASM. It does not upload the photograph. A second worker separates linear-light diffuse illumination, coherent contact creases and smoothed surface normals. Intermediate-scale cushion shading is retained instead of being erased by a broad blur. Source weave is attenuated independently of the new material's microstructure.
 

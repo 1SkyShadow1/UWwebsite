@@ -12,6 +12,7 @@ import { photoPresentation } from './photo-presentation.js'
 import { normaliseSearch } from '../data/discovery.js'
 import { escapeHtml } from '../lib/html.js'
 import { request } from '../lib/api.js'
+import { REGION_COLORS, MAX_PARTS, buildPartRegions, validOutline, partsFingerprint } from './part-regions.js'
 
 export { buildTintedPatternCanvas } from './texture.js'
 
@@ -30,13 +31,14 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   const base=document.createElement('canvas'),context=base.getContext('2d',{willReadFrequently:true})
   let canvas=$('canvas'),renderer,fallbackContext,source,original,mask=new Float32Array(0),depth,analysis,images,colorPixels
   let material=materials.find(item=>item.id===new URLSearchParams(location.search).get('material')) || materials.find(item=>item.id==='velvet') || materials[0]
+  let baseMaterial=material,parts=[],activePartId=null,partDraft=null,previousPartId=null,partLimit=MAX_PARTS,generationClock
   let mode='photo',formId='tailored-sofa',lighting='daylight',tool='ai',brushSize=28,history=[],redo=[],painting=false,lastPoint,seed={x:.5,y:.58}
   let epoch=0,materialVersion=0,disposed=false,selecting=false,depthBusy=false,depthFailure=false,loading=false,exporting=false,comparing=false,pbr,pbrPromise
   let analysisRunning=false,analysisQueued=false,analysisRevision=0,analysisBusy=false,analysisWorkerFailed=false
   const lightingWaiters=new Set()
   let generationConnected=false,generationStarting=false,generationPending=false,generationVersion=0,generationAbort,generationAttempt,generated,showGenerated=true,generationError='',generationProvider=''
   const generationCache=new Map()
-  const resultKey=()=>`${epoch}:${analysisRevision}:${material.id}:${$('ai-quality').value}`
+  const resultKey=()=>`${epoch}:${analysisRevision}:${baseMaterial.id}:${$('ai-quality').value}:${partsFingerprint(parts,$('keep-rest').checked)}`
   let stream,video,animation,lastFrame=0,lastTrack=0,lastSelection=0,lastDepth=0,previousFrame,cameraStarting=false,studies=[],saveAttempt,exportUrl
   const status=message=>{if(!disposed)$('status').textContent=message}
   const showBusy=(value,message)=>{$('busy').hidden=!value;if(message)$('busy-label').textContent=message}
@@ -58,31 +60,42 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     const presentation=photoPresentation({mode,hasResult:Boolean(generated),showResult:showGenerated,showMask:$('mask-toggle').checked})
     root.dataset.photoState=generationPending?'generating':generated?'generated':source?'original':'empty'
     $('generation').hidden=!editing
-    $('generate').disabled=exporting||loading||generationStarting||generationPending||!generationConnected||!source||!selected||(mode==='photo'&&(analysisBusy||selecting))
-    $('generate').textContent=generationPending?'AI is reupholstering…':generated?'Generate another version ↻':`Generate ${material.name} ✦`
-    $('generation-brief').textContent=`Reupholster your piece in ${material.name}. AI replaces the fabric using your original photograph, preserving the furniture’s shape, panel seams and room.`
+    $('generate').disabled=Boolean(partDraft)||parts.some(part=>!validOutline(part.points))||exporting||loading||generationStarting||generationPending||!generationConnected||!source||!selected||(mode==='photo'&&(analysisBusy||selecting))
+    $('generate').textContent=generationPending?'AI is reupholstering…':generated?'Generate another version ↻':parts.length?'Generate this fabric design ✦':`Generate ${baseMaterial.name} ✦`
+    $('generation-brief').textContent=parts.length?`${parts.length} individually dressed part${parts.length===1?'':'s'}${$('keep-rest').checked?', with the remaining upholstery preserved':` and ${baseMaterial.name} on the rest of the piece`}. AI fits all fabrics in one photograph.`:`Reupholster your piece in ${baseMaterial.name}. AI replaces the fabric using your original photograph, preserving the furniture’s shape, panel seams and room.`
     $('ai-quality').disabled=locked
     $('cancel-generation').hidden=!generationPending
     $('toggle-result').hidden=!generated
-    $('toggle-result').disabled=exporting||generationStarting||generationPending
+    $('toggle-result').disabled=Boolean(partDraft)||exporting||generationStarting||generationPending
     $('toggle-result').textContent=showGenerated?'View original':'Compare AI result'
     $('engine').textContent=mode==='3d'?'GENERATED 3D STUDY':presentation.label
     $('auto-select').disabled=!source||selecting||loading||!editing||locked
     $('undo').disabled=!history.length||selecting||mode==='camera'||!editing||locked
     $('redo').disabled=!redo.length||selecting||mode==='camera'||!editing||locked
     $('clear').disabled=!selected||selecting||!editing||locked
-    $('export').disabled=locked||loading||(mode!=='photo'&&!images)||(mode==='3d'?!pbr:!selected||(mode==='photo'&&(!generated||analysisBusy||selecting)))
+    $('export').disabled=Boolean(partDraft)||locked||loading||(mode!=='photo'&&!images)||(mode==='3d'?!pbr:!selected||(mode==='photo'&&(!generated||analysisBusy||selecting)))
     $('export').textContent=exporting?'Preparing your image…':mode==='photo'?'Download AI photograph ↓':mode==='3d'?'Download 3D image ↓':'Download camera study ↓'
     root.querySelectorAll('[data-studio-material],[data-studio-upload],[data-studio-light]').forEach(button=>button.disabled=locked)
     for(const id of ['photo','camera','pbr','form','quality','demo'])$(id).disabled=locked
     $('saved-setups').disabled=locked
+    $('save-setup').disabled=locked||Boolean(partDraft)
     $('refine').hidden=!editing
     $('comparison').hidden=$('divider').hidden=!editing||!selected||!presentation.comparison
     $('capture').hidden=$('stop').hidden=mode!=='camera'
     $('model-controls').hidden=mode!=='3d'
     $('stage').hidden=mode==='3d';$('pbr-panel').hidden=mode!=='3d'
     $('compare').disabled=!selected||!editing
-    $('mask-toggle').disabled=!selected||!editing||locked
+    $('mask-toggle').disabled=Boolean(partDraft)||!selected||!editing||locked
+    $('parts').hidden=mode!=='photo'||!partLimit
+    $('add-part').disabled=locked||loading||selecting||!selected||Boolean(partDraft)||parts.length>=partLimit
+    $('part-type').disabled=locked||Boolean(partDraft)
+    $('keep-rest').disabled=locked||Boolean(partDraft)||!parts.length
+    $('redraw-part').hidden=$('remove-part').hidden=!activePartId||Boolean(partDraft)
+    $('redraw-part').disabled=$('remove-part').disabled=locked
+    $('outline-actions').hidden=!partDraft
+    $('finish-part').disabled=!partDraft||!validOutline(partDraft.points)
+    $('undo-point').disabled=!partDraft?.points.length
+    root.querySelectorAll('[data-studio-part]').forEach(button=>button.disabled=locked||Boolean(partDraft))
     root.querySelectorAll('[data-studio-tool],[data-studio-brush]').forEach(button=>button.disabled=!source||selecting||mode==='camera'||locked)
     for(const [id,value]of[['photo','photo'],['camera','camera'],['pbr','3d']])$(id).setAttribute('aria-pressed',String(mode===value))
     $('selection-state').textContent=mode==='3d'?'✓ Generated 3D geometry':selecting?'◌ Selecting upholstery':selected?'✓ Upholstery selected':'◌ Auto selection'
@@ -91,7 +104,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     else if(depthBusy)$('depth-state').textContent='◌ Analysing AI depth'
     else if(analysisBusy&&mode==='photo')$('depth-state').textContent='◌ Preserving light & seams'
     else $('depth-state').textContent=analysis?.depth?'✓ AI depth aligned':depthFailure?'○ Estimated surface':'◌ Surface depth'
-    $('response-state').textContent=images?`✓ ${materialResponse(material).label}`:'◌ Material response'
+    $('response-state').textContent=mode==='photo'||images?`✓ ${materialResponse(material).label}`:'◌ Material response'
   }
   function draw(){
     if(disposed)return
@@ -109,11 +122,12 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
       if(renderer&&(mode==='camera'||$('mask-toggle').checked))renderer.render({compare:presentation.shaderCompare,showMask:$('mask-toggle').checked,width:base.width,height:base.height})
       else if(fallbackContext){
         canvas.width=base.width;canvas.height=base.height
-        const pixels=images&&colorPixels&&analysis&&(mode==='camera'||$('mask-toggle').checked)?renderSurfaceCPU(source,analysis,colorPixels,material,{compare:presentation.shaderCompare,showMask:$('mask-toggle').checked}):source.data
+        const pixels=analysis&&(mode==='camera'||$('mask-toggle').checked)?renderSurfaceCPU(source,analysis,colorPixels || {width:1,height:1,data:new Uint8ClampedArray([255,255,255,255])},material,{compare:presentation.shaderCompare,showMask:$('mask-toggle').checked}):source.data
         fallbackContext.putImageData(new ImageData(pixels,base.width,base.height),0,0)
       }
       canvas.dataset.depth=analysis?.depth?'ai':'estimated';canvas.dataset.material=material.id
       $('divider').style.left=`${$('compare').value}%`;$('divider').setAttribute('aria-valuenow',$('compare').value)
+      drawParts()
     }catch{compatibility();if(source)draw()}
   }
   async function processAnalysis(){
@@ -147,6 +161,20 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   function rebuildAnalysis(){
     if(!source)return
     invalidateGeneration()
+    if(mode==='photo'){
+      // A generated photograph needs a selection, not a relit material field.
+      analysisRevision++;analysisBusy=false;analysisQueued=false
+      const data=new Uint8Array(mask.length*4),geometry=new Uint8Array(mask.length*4)
+      let selected=0
+      for(let p=0;p<mask.length;p++){
+        const i=p*4;data[i+1]=128;data[i+3]=Math.round(mask[p]*255)
+        geometry[i]=geometry[i+1]=128;geometry[i+2]=geometry[i+3]=255
+        if(mask[p]>.5)selected++
+      }
+      analysis={data,geometry,bounds:[0,0,1,1],selected,depth:false}
+      renderer?.setAnalysis(analysis,base.width,base.height)
+      return
+    }
     analysisRevision++;analysisBusy=true;analysisQueued=true
     if(!analysis){
       // An empty field shows the untouched photo while the first worker runs.
@@ -179,7 +207,62 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   }
   function replaceSource(){
     invalidateGeneration()
+    parts=[];partDraft=null;activePartId=null;$('keep-rest').checked=false;material=baseMaterial;renderParts();updateMaterialCard()
     epoch++;segmentation.cancel();depthEngine.cancel();analysisEngine.cancel();analysisRevision++;analysisQueued=false;analysisBusy=false;selecting=false;depthBusy=false;depthFailure=false;stopCamera();showBusy(false)
+  }
+  function renderParts(){
+    $('part-count').textContent=`${parts.length} / ${partLimit} parts`
+    const card=(id,title,fabric,color)=>`<button type="button" data-studio-part="${id}" aria-pressed="${String((activePartId || '')===id)}"><i style="--part-color:${color}"></i><span><b>${escapeHtml(title)}</b><small>${escapeHtml(fabric)}</small></span></button>`
+    $('part-list').innerHTML=card('','Main upholstery',$('keep-rest').checked?'Keep original':baseMaterial.name,'#b6b6b6')+parts.map((part,i)=>card(part.id,`${part.type} ${i+1}`,(materials.find(item=>item.id===part.materialId)?.name || 'Choose a fabric')+(validOutline(part.points)?'':' · outline needed'),`rgb(${REGION_COLORS[i+2].join(',')})`)).join('')
+  }
+  function selectPart(id){
+    activePartId=id
+    const part=parts.find(item=>item.id===id)
+    material=part?materials.find(item=>item.id===part.materialId):baseMaterial
+    materialVersion++;images=null
+    if(id)showGenerated=false
+    updateMaterialCard();renderParts();draw()
+    $('parts-help').textContent=part?`${part.type} ${parts.indexOf(part)+1} is selected. Choose its fabric from the library, or redraw its outline.`:'Choose the main fabric, or outline a separate cushion, seat or panel.'
+  }
+  function startPart(existing){
+    if(!source||!analysis?.selected||generationPending||generationStarting||exporting||partDraft||(!existing&&parts.length>=partLimit))return
+    previousPartId=activePartId
+    partDraft={id:existing?.id || crypto.randomUUID(),type:existing?.type || $('part-type').value,materialId:existing?.materialId || material.id,points:[],cursor:{x:.5,y:.5}}
+    activePartId=partDraft.id;showGenerated=false;$('mask-toggle').checked=false
+    material=materials.find(item=>item.id===partDraft.materialId);updateMaterialCard();renderParts()
+    $('parts-help').textContent='Tap corners around the part, then Finish outline. Keyboard: arrows move the crosshair, Space adds a corner, Enter finishes. Hold Shift for larger steps.'
+    canvas.focus({preventScroll:true});draw()
+  }
+  function finishPart(){
+    if(!partDraft||!validOutline(partDraft.points)){status('Add at least three corners around a visible furniture part.');return}
+    const existing=parts.findIndex(part=>part.id===partDraft.id),next=[...parts]
+    if(existing<0)next.push(partDraft);else next[existing]=partDraft
+    try{buildPartRegions(mask,base.width,base.height,next.filter(part=>validOutline(part.points)),{keepRest:$('keep-rest').checked})}
+    catch(error){$('parts-help').textContent=error.message;return}
+    parts=next;activePartId=partDraft.id;partDraft=null
+    invalidateGeneration({keepCache:true});renderParts();restoreDesign()
+    $('parts-help').textContent='Part outlined. Choose its fabric from the library. Add another part, or generate the entire design.'
+  }
+  function cancelPart(){
+    partDraft=null;selectPart(parts.some(part=>part.id===previousPartId)?previousPartId:null)
+    showGenerated=Boolean(generated);restoreDesign()
+  }
+  function restoreDesign(){
+    const cached=generationCache.get(resultKey());if(cached)presentGenerated(cached)
+    draw()
+  }
+  function drawParts(){
+    const overlay=$('parts-overlay')
+    const hidden=mode!=='photo'||!source||generationPending||(!partDraft&&Boolean(generated)&&showGenerated)||(!parts.length&&!partDraft)
+    overlay.toggleAttribute('hidden',hidden)
+    if(hidden)return
+    const points=outline=>outline.map(p=>`${(p.x*1000).toFixed(2)},${(p.y*1000).toFixed(2)}`).join(' ')
+    overlay.innerHTML=parts.filter(part=>part.id!==partDraft?.id).map((part,i)=>`<polygon points="${points(part.points)}" fill="rgb(${REGION_COLORS[parts.indexOf(part)+2].join(',')})" fill-opacity=".09" stroke="rgb(${REGION_COLORS[parts.indexOf(part)+2].join(',')})" stroke-width="${part.id===activePartId?3:1.5}" vector-effect="non-scaling-stroke"/>`).join('')
+    if(partDraft){
+      overlay.innerHTML+=`<polygon points="${points(partDraft.points)}" fill="#f5ce39" fill-opacity=".12" stroke="#f5ce39" stroke-width="2" vector-effect="non-scaling-stroke"/>`+partDraft.points.map(p=>`<circle cx="${p.x*1000}" cy="${p.y*1000}" r="7" fill="#f5ce39" stroke="#000" stroke-width="1" vector-effect="non-scaling-stroke"/>`).join('')
+      const x=partDraft.cursor.x*1000,y=partDraft.cursor.y*1000
+      overlay.innerHTML+=`<path d="M ${x-12} ${y} H ${x+12} M ${x} ${y-12} V ${y+12}" fill="none" stroke="#fff" stroke-width="2" vector-effect="non-scaling-stroke"/>`
+    }
   }
   function updateMaterialCard(){
     const response=materialResponse(material)
@@ -188,11 +271,19 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     $('save-material').dataset.saveSwatch=material.id;$('save-material').textContent=isSaved(material.id)?'Saved to your swatch book ✓':'+ Save this fabric direction'
     root.querySelectorAll('[data-studio-material]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.studioMaterial===material.id)))
   }
-  async function setMaterial(next){
-    if(next.id===material.id&&images)return
+  async function setMaterial(next,{force=false}={}){
+    if(!force&&next.id===material.id&&(images||mode==='photo')&&!(!activePartId&&$('keep-rest').checked))return
+    const part=partDraft || parts.find(item=>item.id===activePartId)
+    if(part)part.materialId=next.id
+    else{baseMaterial=next;$('keep-rest').checked=false}
     invalidateGeneration({keepCache:true})
-    material=next;const version=++materialVersion;images=null;updateMaterialCard();updateControls()
+    material=next;const version=++materialVersion;images=null;updateMaterialCard();renderParts();updateControls()
     draw()
+    if(mode==='photo'){
+      const cached=!partDraft&&generationCache.get(resultKey());if(cached)presentGenerated(cached)
+      draw();status(part?`${part.type} fabric: ${material.name}. Generate the design when ready.`:`Main upholstery: ${material.name}.`)
+      return
+    }
     status(`Preparing ${material.name} and its light response…`)
     try{
       const loaded=await loadMaterialImages(material)
@@ -213,7 +304,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     $('swatches').innerHTML=filtered.map(item=>`<button type="button" data-studio-material="${item.id}" aria-pressed="${item.id===material.id}" title="${escapeHtml(item.name)}"><span class="studio-sample ${item.preserveTextureColor?'original':''}" style="--sample-color:${item.color}"><img src="${item.image}" alt="" loading="lazy"></span><span>${escapeHtml(item.name)}</span></button>`).join('') || '<p>No fabrics match. Try another name or surface family.</p>'
   }
   async function selectSurface(point=seed,{automatic=false,quiet=false}={}){
-    if(!source||selecting||generationPending||generationStarting||mode==='3d')return
+    if(!source||partDraft||selecting||generationPending||generationStarting||mode==='3d')return
     const token=epoch,requestPoint={...point};selecting=true
     if(!quiet){showBusy(true,'Finding the upholstered surface…');status('Selecting the upholstery and protecting the room…')}
     updateControls()
@@ -269,10 +360,12 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     try{await loadPhoto(url)}finally{URL.revokeObjectURL(url);$('upload').value=''}
   }
   function invalidateGeneration({keepCache=false}={}){
+    clearInterval(generationClock);generationClock=null;$('job-timing').hidden=true
     generationVersion++;generationAbort?.abort();generationAbort=null
     if(generationPending)showBusy(false)
     const changed=generationPending||generated
     generationPending=false;generated=null;$('generated-image').hidden=true;$('generated-image').removeAttribute('src')
+    if(mode==='photo'&&source)$('resolution-note').textContent='Generate this design to create an AI master. Downloads report its actual pixel dimensions.'
     if(!keepCache)generationCache.clear()
     if(exportUrl){URL.revokeObjectURL(exportUrl);exportUrl=null;$('last-export')?.remove()}
     if(changed&&!generationError)$('generation-status').textContent='Your original is visible. Generate the selected fabric to see the new upholstery.'
@@ -288,6 +381,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
         generationError='';generationAttempt=null;invalidateGeneration()
       }
       generationProvider=providerIdentity
+      partLimit=capabilities.generation?.maximumParts ?? 0;renderParts()
       generationConnected=Boolean(capabilities.generation?.configured)
       const supported=capabilities.generation?.supportedNativeSizes
       if(Array.isArray(supported)&&supported.length){
@@ -297,12 +391,13 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
           invalidateGeneration({keepCache:true})
         }
       }
-      if(!generationPending&&!generated)$('generation-status').textContent=generationError || (generationConnected?(capabilities.generation.provider+' is configured. '+(supported?.length===1?'This model makes a 1K proof. ':'')+'Choose your fabric and generate an edited photograph.'):(capabilities.generation?.setupMessage || 'AI editing is not connected yet. The local connection page can save your API key without editing .env.'))
+      $('detail-note').textContent=supported?.length===1?'This server is pinned to a 1K model. Configure a 4K-capable model to enable higher detail.':'1K is quickest. 2K and 4K use higher-resolution editing and more credits. All outlined parts are edited in one request.'
+      if(!generationPending&&!generated)$('generation-status').textContent=generationError || (generationConnected?(capabilities.generation.provider+' is configured. Choose your fabric and image detail, then generate.'):(capabilities.generation?.setupMessage || 'AI editing is not connected yet. The local connection page can save your API key without editing .env.'))
     }catch{if(!disposed){generationConnected=false;$('generation-status').textContent='The AI connection could not be checked. Refresh the connection to retry.'}}
     finally{if(!disposed){$('check-ai').disabled=false;updateControls()}}
   }
   async function generateAI(){
-    if(generationStarting||generationPending||exporting||!generationConnected||!source||!analysis?.selected||mode==='3d')return
+    if(partDraft||generationStarting||generationPending||exporting||!generationConnected||!source||!analysis?.selected||mode==='3d')return
     generationStarting=true
     try{
       if(mode==='camera')freeze()
@@ -311,18 +406,25 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
       await waitForLighting()
       if(disposed||startingVersion!==generationVersion||!analysis?.selected||mode==='3d')return
     }finally{generationStarting=false;if(!disposed)updateControls()}
-    const token=generationVersion,photoToken=epoch,chosen=material,selection=new Float32Array(mask),width=base.width,height=base.height
+    const token=generationVersion,photoToken=epoch,chosen=baseMaterial,width=base.width,height=base.height
+    let regions
+    try{regions=parts.length?buildPartRegions(mask,width,height,parts,{keepRest:$('keep-rest').checked}):null}
+    catch(error){generationError=error.message;$('generation-status').textContent=error.message;status(error.message);return}
+    const selection=regions?.selection || new Float32Array(mask)
     const fingerprint=resultKey()
     if(generated)generationAttempt=null
     if(generationAttempt?.fingerprint!==fingerprint)generationAttempt={fingerprint,key:crypto.randomUUID()}
     generationAbort=new AbortController();const operation=generationAbort
     generationPending=true;generationError=''
+    const startedAt=performance.now();$('job-timing').hidden=false;$('generation-elapsed').textContent='0s'
+    generationClock=setInterval(()=>{$('generation-elapsed').textContent=`${Math.floor((performance.now()-startedAt)/1000)}s elapsed`},1000)
     const progress=`Generating ${chosen.name} at ${$('ai-quality').value}. Keep this page open while AI rebuilds the upholstery…`
     $('generation-status').textContent=progress;status(progress)
     showBusy(true,'AI is reconstructing the upholstery…');updateControls()
     try{
-      const inputs=generationInputs(original || base,selection,width,height)
-      const result=await generateUpholstery(request,{...inputs,materialId:chosen.id,nativeSize:$('ai-quality').value},{key:generationAttempt.key,signal:AbortSignal.any([signal,operation.signal]),onStatus:message=>{if(!disposed&&token===generationVersion){$('generation-status').textContent=message;status(message)}}})
+      await new Promise(resolve=>requestAnimationFrame(resolve))
+      const inputs=generationInputs(original || base,selection,width,height,{regionLabels:regions?.labels})
+      const result=await generateUpholstery(request,{...inputs,materialId:chosen.id,nativeSize:$('ai-quality').value,...(parts.length?{components:parts.map(({id,type,materialId})=>({id,type,materialId})),keepRest:$('keep-rest').checked}:{})},{key:generationAttempt.key,signal:AbortSignal.any([signal,operation.signal]),onStatus:message=>{if(!disposed&&token===generationVersion){$('generation-status').textContent=message;status(message)}}})
       const image=new Image();image.src=result.imageData;await image.decode()
       if(disposed||token!==generationVersion||photoToken!==epoch)return
       const saved={image,width:result.width,height:result.height,materialId:chosen.id}
@@ -332,18 +434,19 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
       status('AI has reconstructed the upholstery. Drag the divider to compare with the original photograph.')
     }catch(error){
       if(!disposed&&token===generationVersion&&!operation.signal.aborted){if(error.terminal)generationAttempt=null;generationError=error.message;$('generation-status').textContent=error.message;status(error.message)}
-    }finally{if(!disposed&&token===generationVersion){generationPending=false;generationAbort=null;showBusy(false);draw()}}
+    }finally{clearInterval(generationClock);generationClock=null;if(!disposed&&token===generationVersion){$('generation-elapsed').textContent=`${Math.round((performance.now()-startedAt)/1000)}s total`;generationPending=false;generationAbort=null;showBusy(false);draw()}}
   }
   function presentGenerated(result){
     generated=result;showGenerated=true;generationError='';$('mask-toggle').checked=false
-    $('generated-image').src=result.image.src;$('generated-image').alt=`AI reupholstery in ${material.name}`
-    $('generation-status').textContent=`AI photograph ready in ${material.name}. Drag the divider to compare the shape, seams and finish.`
+    $('generated-image').src=result.image.src;$('generated-image').alt=parts.length?'AI reupholstery with individually selected part fabrics':`AI reupholstery in ${baseMaterial.name}`
+    $('generation-status').textContent=`AI photograph ready${parts.length?` with ${parts.length} separately dressed parts`:` in ${baseMaterial.name}`}. Drag the divider to compare the shape, seams and finish.`
     $('resolution-note').textContent=`Native AI edit ${result.width} × ${result.height} px. Downloads resize this master to the chosen output size; 8K export adds canvas size, not new detail.`
   }
   async function show3d(){
     replaceSource();mode='3d';updateControls();status('Preparing the 3D material studio…')
     try{
       if(!pbr){pbrPromise ||= import('./pbr-preview.js');const {createPbrPreview}=await pbrPromise;if(disposed||mode!=='3d')return;pbr=createPbrPreview($('pbr-host'),status,{onContextLost:()=>{status('The 3D graphics device was reset. Switch to Photograph and back to retry.');pbr?.dispose();pbr=null;updateControls()}})}
+      await setMaterial(material,{force:true})
       pbr.setForm(formId);pbr.setLight(lighting);if(images)await pbr.setMaterial(material,images)
       if(disposed||mode!=='3d')return
       root.querySelectorAll('[data-studio-light]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.studioLight===lighting)))
@@ -362,6 +465,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
       stream=acquired;video=document.createElement('video');video.muted=true;video.playsInline=true;video.srcObject=stream;await video.play()
       if(disposed||token!==epoch){stopCamera();return}
       mode='camera';cameraStarting=false;resize(video.videoWidth,video.videoHeight,960);original=null;seed={x:.5,y:.58};lastFrame=lastTrack=lastSelection=lastDepth=0
+      await setMaterial(material,{force:true})
       $('empty').hidden=true;$('stage-label').hidden=false;$('stage-label').textContent='LIVE AI / HOLD STEADY'
       $('resolution-note').textContent=`Live source ${video.videoWidth} × ${video.videoHeight} px. Exports use the full camera frame; 8K output does not add uncaptured camera detail.`
       status('Keep the upholstery centred for automatic selection. AI refreshes the surface while motion tracking follows your camera.');updateControls()
@@ -402,12 +506,19 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     if(event.target.closest('#studio-divider')){event.preventDefault();comparing=true;$('divider').setPointerCapture(event.pointerId);compareAt(event);return}
     if(event.target!==canvas||!source||selecting||loading||exporting||generationPending||generationStarting||mode==='3d')return
     event.preventDefault();canvas.focus({preventScroll:true});const point=pointFromEvent(event)
+    if(partDraft){
+      if(partDraft.points.length>=3&&Math.hypot(point.x-partDraft.points[0].x,point.y-partDraft.points[0].y)<.025){finishPart();return}
+      if(partDraft.points.length>=64){status('Use Finish outline or undo a corner before adding more.');return}
+      partDraft.cursor={...point};partDraft.points.push(point);$('parts-help').textContent=`${partDraft.points.length} corners. Tap around the edge, then Finish outline. Enter finishes; Backspace undoes; Escape cancels.`;draw();return
+    }
     if(mode==='camera'||tool==='ai'){seed=point;void selectSurface(point);return}
     stash();painting=true;lastPoint=null;canvas.setPointerCapture(event.pointerId);paint(point)
   })
   listen(root,'pointermove',event=>{if(comparing)compareAt(event);else if(painting)paint(pointFromEvent(event))})
   for(const name of ['pointerup','pointercancel'])listen(root,name,()=>{const painted=painting;comparing=false;painting=false;lastPoint=null;if(painted){rebuildAnalysis();draw()}})
   listen(root,'click',async event=>{
+    const partButton=event.target.closest('[data-studio-part]')
+    if(partButton){if(!exporting&&!generationPending&&!generationStarting&&!partDraft)selectPart(partButton.dataset.studioPart || null);return}
     if(event.target.closest('[data-studio-upload]')){$('upload').click();return}
     const swatch=event.target.closest('[data-studio-material]')
     if(swatch){if(exporting||generationPending||generationStarting)return;const next=materials.find(item=>item.id===swatch.dataset.studioMaterial);if(!next)return;await setMaterial(next);if(!source&&mode==='photo')void loadPhoto('/assets/products/alessio-three.webp');return}
@@ -428,6 +539,13 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   listen($('cancel-generation'),'click',()=>{invalidateGeneration();$('generation-status').textContent='AI edit cancelled. Your original photograph is still available.';draw()})
   listen($('ai-quality'),'change',()=>{invalidateGeneration({keepCache:true});const cached=generationCache.get(resultKey());if(cached)presentGenerated(cached);status(cached?'Your previous AI edit is restored. No new generation was used.':`Original photograph. Generate ${material.name} at ${$('ai-quality').value} to see the new upholstery.`);draw()})
   listen($('toggle-result'),'click',()=>{showGenerated=!showGenerated;draw()})
+  listen($('add-part'),'click',()=>startPart())
+  listen($('redraw-part'),'click',()=>startPart(parts.find(part=>part.id===activePartId)))
+  listen($('finish-part'),'click',finishPart)
+  listen($('cancel-part'),'click',cancelPart)
+  listen($('undo-point'),'click',()=>{partDraft?.points.pop();draw()})
+  listen($('remove-part'),'click',()=>{parts=parts.filter(part=>part.id!==activePartId);if(!parts.length)$('keep-rest').checked=false;invalidateGeneration({keepCache:true});selectPart(null);restoreDesign()})
+  listen($('keep-rest'),'change',()=>{invalidateGeneration({keepCache:true});renderParts();restoreDesign()})
   listen(window,'focus',()=>{if(!generationConnected)void refreshGenerationConnection()})
   listen($('stage'),'dragover',event=>{event.preventDefault();$('stage').classList.add('drag-over')})
   listen($('stage'),'dragleave',()=>$('stage').classList.remove('drag-over'))
@@ -442,6 +560,22 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   listen($('redo'),'click',()=>{if(redo.length){history.push(new Float32Array(mask));mask=redo.pop();rebuildAnalysis();draw();status('Selection reapplied. Fabric and lighting update automatically.')}})
   listen($('clear'),'click',()=>{stash();mask.fill(0);rebuildAnalysis();draw();status('Selection cleared. Tap the upholstery or use Brush to select it again.')})
   listen(root,'keydown',event=>{
+    if(partDraft&&event.target===canvas){
+      if(['Escape','Enter','Backspace',' ','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)){
+        event.preventDefault()
+        if(event.key==='Escape')cancelPart()
+        else if(event.key==='Enter')finishPart()
+        else if(event.key==='Backspace'){partDraft.points.pop();draw()}
+        else if(event.key===' '){if(partDraft.points.length<64)partDraft.points.push({...partDraft.cursor});draw()}
+        else{
+          const step=event.shiftKey ? .1 : .02,cursor=partDraft.cursor
+          if(event.key==='ArrowLeft'||event.key==='ArrowRight')cursor.x=Math.max(0,Math.min(1,cursor.x+(event.key==='ArrowLeft'?-step:step)))
+          else cursor.y=Math.max(0,Math.min(1,cursor.y+(event.key==='ArrowUp'?-step:step)))
+          drawParts()
+        }
+      }
+      return
+    }
     if(event.target===$('divider')&&['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();$('compare').value=event.key==='Home'?0:event.key==='End'?100:Number($('compare').value)+(event.key==='ArrowLeft'?-5:5);draw();return}
     if(event.target.closest('input,select,textarea')||selecting||loading)return
     if((event.ctrlKey||event.metaKey)&&['z','y'].includes(event.key.toLowerCase())){event.preventDefault();$(event.key.toLowerCase()==='y'||event.shiftKey?'redo':'undo').click()}
@@ -513,23 +647,30 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   request('/api/studio/designs',{signal}).then(items=>{studies=items;paintStudies()}).catch(()=>{if(!disposed)$('save-status').textContent='Saved setups will return when the workshop connection is available.'})
   listen($('save-setup'),'click',async()=>{
     const button=$('save-setup');button.disabled=true
-    const body={materialId:material.id,formId,lighting,mode:mode==='camera'?'camera':mode==='3d'?'3d':'photo',quality:$('quality').value,name:`${material.name} / ${mode==='3d'?studioForms.find(form=>form.id===formId).name:'Photo study'}`}
+    const body={materialId:baseMaterial.id,formId,lighting,mode:mode==='camera'?'camera':mode==='3d'?'3d':'photo',quality:$('quality').value,nativeSize:$('ai-quality').value,...(parts.length?{components:parts.map(({id,type,materialId})=>({id,type,materialId})),keepRest:$('keep-rest').checked}:{}),name:`${baseMaterial.name} / ${mode==='3d'?studioForms.find(form=>form.id===formId).name:parts.length?`${parts.length}-part photo study`:'Photo study'}`}
     const fingerprint=JSON.stringify(body);if(saveAttempt?.fingerprint!==fingerprint)saveAttempt={fingerprint,key:crypto.randomUUID()}
-    try{const study=await request('/api/studio/designs',{method:'POST',body,headers:{'Idempotency-Key':saveAttempt.key},signal});if(disposed)return;studies=[study,...studies.filter(item=>item.id!==study.id)];paintStudies();$('save-status').textContent='Only fabric, form and lighting settings were saved. Photographs are not included.'}
+    try{const study=await request('/api/studio/designs',{method:'POST',body,headers:{'Idempotency-Key':saveAttempt.key},signal});if(disposed)return;studies=[study,...studies.filter(item=>item.id!==study.id)];paintStudies();$('save-status').textContent='Fabric choices for the main piece and its parts were saved. Photographs and outlines stay on your device; redraw outlines when restoring.'}
     catch(error){if(!disposed)$('save-status').textContent=error.message}
     finally{if(!disposed)button.disabled=false}
   })
   listen($('saved-setups'),'change',async()=>{
     const study=studies.find(item=>item.id===$('saved-setups').value);if(!study)return
     formId=study.formId;lighting=study.lighting;$('form').value=formId;$('quality').value=study.quality
+    partDraft=null;parts=[];activePartId=null
     await setMaterial(materials.find(item=>item.id===study.materialId) || material)
     if(study.mode==='3d')await show3d()
-    else {if(mode==='camera')freeze();mode='photo';pbr?.setTurntable(false);draw();status('Your fabric setup is restored. Upload your photograph or start the camera to apply it.')}
+    else {
+      if(mode==='camera')freeze();mode='photo';pbr?.setTurntable(false)
+      parts=(study.components || []).map(part=>({...part,points:[]}));$('keep-rest').checked=Boolean(study.keepRest)
+      const detail=[...$('ai-quality').options].find(option=>option.value===study.nativeSize&&!option.disabled)
+      if(detail)$('ai-quality').value=detail.value
+      invalidateGeneration();renderParts();draw();status(parts.length?'Part fabrics restored. Select each part card and redraw its outline on this photograph.':'Your fabric setup is restored. Upload your photograph or start the camera to apply it.')
+    }
   })
   const visibility=()=>{if(document.hidden&&mode==='camera')freeze()};listen(document,'visibilitychange',visibility)
-  const dispose=()=>{if(disposed)return;disposed=true;epoch++;materialVersion++;generationAbort?.abort();lifecycle.abort();segmentation.dispose();depthEngine.dispose();analysisEngine.dispose();exportEngine.dispose();for(const ready of lightingWaiters)ready();stopCamera();pbr?.dispose();renderer?.dispose();if(exportUrl)URL.revokeObjectURL(exportUrl);window.removeEventListener('pagehide',dispose)}
+  const dispose=()=>{if(disposed)return;disposed=true;clearInterval(generationClock);epoch++;materialVersion++;generationAbort?.abort();lifecycle.abort();segmentation.dispose();depthEngine.dispose();analysisEngine.dispose();exportEngine.dispose();for(const ready of lightingWaiters)ready();stopCamera();pbr?.dispose();renderer?.dispose();if(exportUrl)URL.revokeObjectURL(exportUrl);window.removeEventListener('pagehide',dispose)}
   window.addEventListener('pagehide',dispose,{once:true})
-  renderSwatches();void setMaterial(material);updateControls()
+  renderSwatches();renderParts();updateMaterialCard();updateControls()
   void refreshGenerationConnection()
   if(new URLSearchParams(location.search).has('material'))void loadPhoto('/assets/products/alessio-three.webp')
   return dispose

@@ -12,7 +12,8 @@ import { photoPresentation } from './photo-presentation.js'
 import { normaliseSearch } from '../data/discovery.js'
 import { escapeHtml } from '../lib/html.js'
 import { request } from '../lib/api.js'
-import { REGION_COLORS, MAX_PARTS, buildPartRegions, validOutline, partsFingerprint } from './part-regions.js'
+import { REGION_COLORS, MAX_PARTS, buildPartRegions, validOutline, partsFingerprint, plannedFabricEdits, partContainsPoint } from './part-regions.js'
+import { maskOutline } from './section-detection.js'
 
 export { buildTintedPatternCanvas } from './texture.js'
 
@@ -32,6 +33,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   let canvas=$('canvas'),renderer,fallbackContext,source,original,mask=new Float32Array(0),depth,analysis,images,colorPixels
   let material=materials.find(item=>item.id===new URLSearchParams(location.search).get('material')) || materials.find(item=>item.id==='velvet') || materials[0]
   let baseMaterial=material,parts=[],activePartId=null,partDraft=null,previousPartId=null,partLimit=MAX_PARTS,generationClock
+  let sectionsDetecting=false,sectionVersion=0
   let mode='photo',formId='tailored-sofa',lighting='daylight',tool='ai',brushSize=28,history=[],redo=[],painting=false,lastPoint,seed={x:.5,y:.58}
   let epoch=0,materialVersion=0,disposed=false,selecting=false,depthBusy=false,depthFailure=false,loading=false,exporting=false,comparing=false,pbr,pbrPromise
   let analysisRunning=false,analysisQueued=false,analysisRevision=0,analysisBusy=false,analysisWorkerFailed=false
@@ -46,6 +48,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   const exportEngine=createInferenceClient(()=>new Worker(new URL('./export.worker.js',import.meta.url),{type:'module'}),{timeout:120000})
   const analysisEngine=createInferenceClient(()=>new Worker(new URL('./analysis.worker.js',import.meta.url),{type:'module'}),{timeout:30000})
   const depthEngine=createInferenceClient(()=>new Worker(new URL('./depth.worker.js',import.meta.url),{type:'module'}),{timeout:120000,onProgress:value=>{if(depthBusy)$('depth-state').textContent=`◌ AI depth ${value}%`}})
+  const sectionEngine=createInferenceClient(()=>new Worker(new URL('./sections.worker.js',import.meta.url),{type:'module'}),{timeout:120000,onProgress:value=>{if(sectionsDetecting)$('parts-help').textContent=typeof value==='string'?value:`Loading local section AI: ${value}%. Your photograph stays on this device.`}})
   const compatibility=()=>{
     renderer?.dispose();renderer=null
     const next=canvas.cloneNode(false);canvas.replaceWith(next);canvas=next;fallbackContext=canvas.getContext('2d',{willReadFrequently:true})
@@ -60,25 +63,28 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     const presentation=photoPresentation({mode,hasResult:Boolean(generated),showResult:showGenerated,showMask:$('mask-toggle').checked})
     root.dataset.photoState=generationPending?'generating':generated?'generated':source?'original':'empty'
     $('generation').hidden=!editing
-    $('generate').disabled=Boolean(partDraft)||parts.some(part=>!validOutline(part.points))||exporting||loading||generationStarting||generationPending||!generationConnected||!source||!selected||(mode==='photo'&&(analysisBusy||selecting))
+    $('generate').disabled=sectionsDetecting||Boolean(partDraft)||parts.some(part=>!validOutline(part.points))||exporting||loading||generationStarting||generationPending||!generationConnected||!source||!selected||(mode==='photo'&&(analysisBusy||selecting))
     $('generate').textContent=generationPending?'AI is reupholstering…':generated?'Generate another version ↻':parts.length?'Generate this fabric design ✦':`Generate ${baseMaterial.name} ✦`
     $('generation-brief').textContent=parts.length?`${parts.length} individually dressed part${parts.length===1?'':'s'}${$('keep-rest').checked?', with the remaining upholstery preserved':` and ${baseMaterial.name} on the rest of the piece`}. AI fits all fabrics in one photograph.`:`Reupholster your piece in ${baseMaterial.name}. AI replaces the fabric using your original photograph, preserving the furniture’s shape, panel seams and room.`
+    const editCount=plannedFabricEdits(baseMaterial.id,parts,$('keep-rest').checked)
+    $('fabric-cost').textContent=`${editCount} chosen fabric${editCount===1?'':'s'} · ${editCount>1?'up to ':''}${editCount} separate AI edit${editCount===1?'':'s'}. Credits apply per edit. Each fabric is confined to its own furniture sections.`
+    $('edit-count').textContent=`${editCount} fabric edit${editCount===1?'':'s'} · one per chosen fabric`
     $('ai-quality').disabled=locked
     $('cancel-generation').hidden=!generationPending
     $('toggle-result').hidden=!generated
     $('toggle-result').disabled=Boolean(partDraft)||exporting||generationStarting||generationPending
     $('toggle-result').textContent=showGenerated?'View original':'Compare AI result'
     $('engine').textContent=mode==='3d'?'GENERATED 3D STUDY':presentation.label
-    $('auto-select').disabled=!source||selecting||loading||!editing||locked
-    $('undo').disabled=!history.length||selecting||mode==='camera'||!editing||locked
-    $('redo').disabled=!redo.length||selecting||mode==='camera'||!editing||locked
-    $('clear').disabled=!selected||selecting||!editing||locked
-    $('export').disabled=Boolean(partDraft)||locked||loading||(mode!=='photo'&&!images)||(mode==='3d'?!pbr:!selected||(mode==='photo'&&(!generated||analysisBusy||selecting)))
+    $('auto-select').disabled=sectionsDetecting||!source||selecting||loading||!editing||locked
+    $('undo').disabled=sectionsDetecting||!history.length||selecting||mode==='camera'||!editing||locked
+    $('redo').disabled=sectionsDetecting||!redo.length||selecting||mode==='camera'||!editing||locked
+    $('clear').disabled=sectionsDetecting||!selected||selecting||!editing||locked
+    $('export').disabled=sectionsDetecting||Boolean(partDraft)||locked||loading||(mode!=='photo'&&!images)||(mode==='3d'?!pbr:!selected||(mode==='photo'&&(!generated||analysisBusy||selecting)))
     $('export').textContent=exporting?'Preparing your image…':mode==='photo'?'Download AI photograph ↓':mode==='3d'?'Download 3D image ↓':'Download camera study ↓'
     root.querySelectorAll('[data-studio-material],[data-studio-upload],[data-studio-light]').forEach(button=>button.disabled=locked)
     for(const id of ['photo','camera','pbr','form','quality','demo'])$(id).disabled=locked
     $('saved-setups').disabled=locked
-    $('save-setup').disabled=locked||Boolean(partDraft)
+    $('save-setup').disabled=sectionsDetecting||locked||Boolean(partDraft)
     $('refine').hidden=!editing
     $('comparison').hidden=$('divider').hidden=!editing||!selected||!presentation.comparison
     $('capture').hidden=$('stop').hidden=mode!=='camera'
@@ -87,17 +93,20 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     $('compare').disabled=!selected||!editing
     $('mask-toggle').disabled=Boolean(partDraft)||!selected||!editing||locked
     $('parts').hidden=mode!=='photo'||!partLimit
-    $('add-part').disabled=locked||loading||selecting||!selected||Boolean(partDraft)||parts.length>=partLimit
-    $('part-type').disabled=locked||Boolean(partDraft)
-    $('keep-rest').disabled=locked||Boolean(partDraft)||!parts.length
+    $('find-parts').disabled=locked||sectionsDetecting||loading||selecting||!selected||Boolean(partDraft)||parts.length>=partLimit
+    $('find-parts').textContent=sectionsDetecting?'Finding sections…':parts.length?'✦ Find more sections':'✦ Find sections'
+    $('cancel-find-parts').hidden=!sectionsDetecting
+    $('add-part').disabled=sectionsDetecting||locked||loading||selecting||!selected||Boolean(partDraft)||parts.length>=partLimit
+    $('part-type').disabled=sectionsDetecting||locked||Boolean(partDraft)
+    $('keep-rest').disabled=sectionsDetecting||locked||Boolean(partDraft)||!parts.length
     $('redraw-part').hidden=$('remove-part').hidden=!activePartId||Boolean(partDraft)
-    $('redraw-part').disabled=locked||loading||selecting||!selected
-    $('remove-part').disabled=locked
+    $('redraw-part').disabled=sectionsDetecting||locked||loading||selecting||!selected
+    $('remove-part').disabled=sectionsDetecting||locked
     $('outline-actions').hidden=!partDraft
     $('finish-part').disabled=!partDraft||!validOutline(partDraft.points)
     $('undo-point').disabled=!partDraft?.points.length
     root.querySelectorAll('[data-studio-part]').forEach(button=>button.disabled=locked||Boolean(partDraft))
-    root.querySelectorAll('[data-studio-tool],[data-studio-brush]').forEach(button=>button.disabled=!source||selecting||mode==='camera'||locked)
+    root.querySelectorAll('[data-studio-tool],[data-studio-brush]').forEach(button=>button.disabled=sectionsDetecting||!source||selecting||mode==='camera'||locked)
     for(const [id,value]of[['photo','photo'],['camera','camera'],['pbr','3d']])$(id).setAttribute('aria-pressed',String(mode===value))
     $('selection-state').textContent=mode==='3d'?'✓ Generated 3D geometry':selecting?'◌ Selecting upholstery':selected?'✓ Upholstery selected':'◌ Auto selection'
     if(mode==='photo')$('depth-state').textContent=selected?'✓ Original camera & framing':'◌ Preparing photograph'
@@ -208,13 +217,48 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   }
   function replaceSource(){
     invalidateGeneration()
+    sectionVersion++;sectionEngine.cancel();sectionsDetecting=false
     parts=[];partDraft=null;activePartId=null;$('keep-rest').checked=false;material=baseMaterial;renderParts();updateMaterialCard()
     epoch++;segmentation.cancel();depthEngine.cancel();analysisEngine.cancel();analysisRevision++;analysisQueued=false;analysisBusy=false;selecting=false;depthBusy=false;depthFailure=false;stopCamera();showBusy(false)
   }
   function renderParts(){
     $('part-count').textContent=`${parts.length} / ${partLimit} parts`
-    const card=(id,title,fabric,color)=>`<button type="button" data-studio-part="${id}" aria-pressed="${String((activePartId || '')===id)}"><i style="--part-color:${color}"></i><span><b>${escapeHtml(title)}</b><small>${escapeHtml(fabric)}</small></span></button>`
-    $('part-list').innerHTML=card('','Main upholstery',$('keep-rest').checked?'Keep original':baseMaterial.name,'#b6b6b6')+parts.map((part,i)=>card(part.id,`${part.type} ${i+1}`,(materials.find(item=>item.id===part.materialId)?.name || 'Choose a fabric')+(validOutline(part.points)?'':' · outline needed'),`rgb(${REGION_COLORS[i+2].join(',')})`)).join('')
+    const card=(id,title,fabric,color,detected=false)=>`<button type="button" data-studio-part="${id}" aria-pressed="${String((activePartId || '')===id)}"><i style="--part-color:${color}"></i><span><b>${escapeHtml(title)}</b><small>${escapeHtml(fabric)}</small>${detected?'<em class="studio-part-origin">AI outline · review</em>':''}</span></button>`
+    $('part-list').innerHTML=card('','Main upholstery',$('keep-rest').checked?'Keep original':baseMaterial.name,'#b6b6b6')+parts.map((part,i)=>card(part.id,`${part.type} ${i+1}`,(materials.find(item=>item.id===part.materialId)?.name || 'Choose a fabric')+(validOutline(part.points)?'':' · outline needed'),`rgb(${REGION_COLORS[i+2].join(',')})`,Boolean(part.region))).join('')
+  }
+  function cancelSectionDetection(){
+    sectionVersion++;sectionsDetecting=false;sectionEngine.cancel();updateControls()
+    $('parts-help').textContent='Detection stopped. Your existing sections and fabrics are unchanged; you can outline another part manually.'
+  }
+  async function detectSections(){
+    if(disposed||mode!=='photo'||!source||!analysis?.selected||selecting||loading||sectionsDetecting||generationPending||generationStarting||partDraft||parts.length>=partLimit)return
+    const token=epoch,revision=analysisRevision,version=++sectionVersion
+    sectionsDetecting=true;updateControls();$('parts-help').textContent='Finding furniture sections with local AI. Your photograph stays on this device; no API credits are used.'
+    try{
+      const preview=document.createElement('canvas'),scale=Math.min(1,512/Math.max(base.width,base.height))
+      preview.width=Math.max(1,Math.round(base.width*scale));preview.height=Math.max(1,Math.round(base.height*scale))
+      const ctx=preview.getContext('2d');ctx.drawImage(original || base,0,0,preview.width,preview.height)
+      const pixels=ctx.getImageData(0,0,preview.width,preview.height),selected=resampleSelection({values:mask,width:base.width,height:base.height},preview.width,preview.height)
+      const result=await sectionEngine.request({pixels:pixels.data.buffer,mask:selected.buffer,width:preview.width,height:preview.height,limit:MAX_PARTS},[pixels.data.buffer,selected.buffer])
+      if(disposed||token!==epoch||version!==sectionVersion||revision!==analysisRevision)return
+      let added=0
+      for(const section of result.sections){
+        if(parts.length>=partLimit)break
+        let covered=0,area=0
+        const values=new Uint8Array(section.values)
+        for(let p=0;p<values.length;p++)if(values[p]){
+          area++
+          if(parts.some(part=>partContainsPoint(part,(p%section.width+.5)/section.width,(Math.floor(p/section.width)+.5)/section.height))){values[p]=0;covered++}
+        }
+        if(covered/Math.max(1,area)>.4)continue
+        const points=covered?maskOutline(values,section.width,section.height):section.points
+        if(!validOutline(points))continue
+        parts.push({id:crypto.randomUUID(),type:'Section',materialId:baseMaterial.id,points,region:{width:section.width,height:section.height,values,signature:section.signature}});added++
+      }
+      if(added){invalidateGeneration({keepCache:true});renderParts();$('parts-help').textContent=`${added} AI section${added===1?'':'s'} found. Select a card or tap a section, then choose its own fabric. Review outlines and redraw any that need adjustment.`;status('Furniture sections are ready. Choose a section to assign its fabric. The room stays protected by the furniture selection.')}
+      else $('parts-help').textContent='No additional sections were confidently separated. Your existing choices are unchanged. Outline a cushion or panel manually.'
+    }catch(error){if(!disposed&&version===sectionVersion&&token===epoch)$('parts-help').textContent=`Automatic sections are unavailable. You can still outline each part manually. ${error.message}`}
+    finally{if(!disposed&&version===sectionVersion){sectionsDetecting=false;draw()}}
   }
   function selectPart(id){
     activePartId=id
@@ -226,7 +270,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     $('parts-help').textContent=part?`${part.type} ${parts.indexOf(part)+1} is selected. Choose its fabric from the library, or redraw its outline.`:'Choose the main fabric, or outline a separate cushion, seat or panel.'
   }
   function startPart(existing){
-    if(!source||!analysis?.selected||selecting||loading||generationPending||generationStarting||exporting||partDraft||(!existing&&parts.length>=partLimit))return
+    if(!source||!analysis?.selected||sectionsDetecting||selecting||loading||generationPending||generationStarting||exporting||partDraft||(!existing&&parts.length>=partLimit))return
     previousPartId=activePartId
     partDraft={id:existing?.id || crypto.randomUUID(),type:existing?.type || $('part-type').value,materialId:existing?.materialId || material.id,points:[],cursor:{x:.5,y:.5}}
     activePartId=partDraft.id;showGenerated=false;$('mask-toggle').checked=false
@@ -305,7 +349,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     $('swatches').innerHTML=filtered.map(item=>`<button type="button" data-studio-material="${item.id}" aria-pressed="${item.id===material.id}" title="${escapeHtml(item.name)}"><span class="studio-sample ${item.preserveTextureColor?'original':''}" style="--sample-color:${item.color}"><img src="${item.image}" alt="" loading="lazy"></span><span>${escapeHtml(item.name)}</span></button>`).join('') || '<p>No fabrics match. Try another name or surface family.</p>'
   }
   async function selectSurface(point=seed,{automatic=false,quiet=false}={}){
-    if(!source||partDraft||selecting||generationPending||generationStarting||mode==='3d')return
+    if(!source||sectionsDetecting||partDraft||selecting||generationPending||generationStarting||mode==='3d')return
     const token=epoch,requestPoint={...point};selecting=true
     if(!quiet){showBusy(true,'Finding the upholstered surface…');status('Selecting the upholstery and protecting the room…')}
     updateControls()
@@ -322,7 +366,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
       rebuildAnalysis();draw()
       if(!quiet)status(mode==='photo'?`Upholstery selected. Generate ${material.name} to see the fabric changed in your photograph.`:`${material.name} camera study. Surface depth is being prepared.`)
     }catch(error){if(!disposed&&token===epoch){if(!quiet)status(`${error.message} Open Refine selection to brush the upholstery.`);$('selection-state').textContent='○ Tap or brush to select'}}
-    finally{if(!disposed&&token===epoch){selecting=false;showBusy(false);draw()}}
+    finally{if(!disposed&&token===epoch){selecting=false;showBusy(false);draw();if(mode==='photo'&&analysis?.selected&&!parts.length&&$('auto-parts').checked)void detectSections()}}
   }
   async function estimateDepth(){
     if(!source||depthBusy||mode==='3d'||depthFailure)return
@@ -392,13 +436,13 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
           invalidateGeneration({keepCache:true})
         }
       }
-      $('detail-note').textContent=supported?.length===1?'This server is pinned to a 1K model. Configure a 4K-capable model to enable higher detail.':'1K is quickest. 2K and 4K use higher-resolution editing and more credits. All outlined parts are edited in one request.'
+      $('detail-note').textContent=supported?.length===1?'This server is pinned to a 1K model. Configure a 4K-capable model to enable higher detail.':'1K is quickest. 2K and 4K use higher-resolution editing and more credits. Distinct fabrics use separate protected AI edits.'
       if(!generationPending&&!generated)$('generation-status').textContent=generationError || (generationConnected?(capabilities.generation.provider+' is configured. Choose your fabric and image detail, then generate.'):(capabilities.generation?.setupMessage || 'AI editing is not connected yet. The local connection page can save your API key without editing .env.'))
     }catch{if(!disposed){generationConnected=false;$('generation-status').textContent='The AI connection could not be checked. Refresh the connection to retry.'}}
     finally{if(!disposed){$('check-ai').disabled=false;updateControls()}}
   }
   async function generateAI(){
-    if(partDraft||generationStarting||generationPending||exporting||!generationConnected||!source||!analysis?.selected||mode==='3d')return
+    if(sectionsDetecting||partDraft||generationStarting||generationPending||exporting||!generationConnected||!source||!analysis?.selected||mode==='3d')return
     generationStarting=true
     try{
       if(mode==='camera')freeze()
@@ -429,7 +473,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
       const result=await generateUpholstery(request,{...inputs,materialId:chosen.id,nativeSize:$('ai-quality').value,...(parts.length?{components:parts.map(({id,type,materialId})=>({id,type,materialId})),keepRest:$('keep-rest').checked}:{})},{key:generationAttempt.key,signal:AbortSignal.any([signal,operation.signal]),onStatus:message=>{if(!disposed&&token===generationVersion){$('generation-status').textContent=message;status(message)}}})
       const image=new Image();image.src=result.imageData;await image.decode()
       if(disposed||token!==generationVersion||photoToken!==epoch)return
-      const saved={image,width:result.width,height:result.height,materialId:chosen.id}
+      const saved={image,width:result.width,height:result.height,materialId:chosen.id,fabricEditCount:result.fabricEditCount}
       generationCache.delete(fingerprint);generationCache.set(fingerprint,saved)
       while(generationCache.size>2||([...generationCache.values()].reduce((total,item)=>total+item.image.src.length,0)>40_000_000&&generationCache.size>1))generationCache.delete(generationCache.keys().next().value)
       presentGenerated(saved)
@@ -506,12 +550,16 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   const compareAt=event=>{const rect=canvas.getBoundingClientRect();$('compare').value=Math.round(Math.max(0,Math.min(100,(event.clientX-rect.left)/rect.width*100)));draw()}
   listen(root,'pointerdown',event=>{
     if(event.target.closest('#studio-divider')){event.preventDefault();comparing=true;$('divider').setPointerCapture(event.pointerId);compareAt(event);return}
-    if(event.target!==canvas||!source||selecting||loading||exporting||generationPending||generationStarting||mode==='3d')return
+    if(event.target!==canvas||!source||sectionsDetecting||selecting||loading||exporting||generationPending||generationStarting||mode==='3d')return
     event.preventDefault();canvas.focus({preventScroll:true});const point=pointFromEvent(event)
     if(partDraft){
       if(partDraft.points.length>=3&&Math.hypot(point.x-partDraft.points[0].x,point.y-partDraft.points[0].y)<.025){finishPart();return}
       if(partDraft.points.length>=64){status('Use Finish outline or undo a corner before adding more.');return}
       partDraft.cursor={...point};partDraft.points.push(point);$('parts-help').textContent=`${partDraft.points.length} corners. Tap around the edge, then Finish outline. Enter finishes; Backspace undoes; Escape cancels.`;draw();return
+    }
+    if(mode==='photo'&&tool==='ai'){
+      const hit=[...parts].reverse().find(part=>partContainsPoint(part,point.x,point.y))
+      if(hit){selectPart(hit.id);return}
     }
     if(mode==='camera'||tool==='ai'){seed=point;void selectSurface(point);return}
     stash();painting=true;lastPoint=null;canvas.setPointerCapture(event.pointerId);paint(point)
@@ -542,6 +590,9 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   listen($('ai-quality'),'change',()=>{invalidateGeneration({keepCache:true});const cached=generationCache.get(resultKey());if(cached)presentGenerated(cached);status(cached?'Your previous AI edit is restored. No new generation was used.':`Original photograph. Generate ${material.name} at ${$('ai-quality').value} to see the new upholstery.`);draw()})
   listen($('toggle-result'),'click',()=>{showGenerated=!showGenerated;draw()})
   listen($('add-part'),'click',()=>startPart())
+  listen($('find-parts'),'click',()=>{void detectSections()})
+  listen($('cancel-find-parts'),'click',cancelSectionDetection)
+  listen($('auto-parts'),'change',()=>{if(!$('auto-parts').checked)cancelSectionDetection();else if(!parts.length)void detectSections()})
   listen($('redraw-part'),'click',()=>startPart(parts.find(part=>part.id===activePartId)))
   listen($('finish-part'),'click',finishPart)
   listen($('cancel-part'),'click',cancelPart)
@@ -657,6 +708,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
   })
   listen($('saved-setups'),'change',async()=>{
     const study=studies.find(item=>item.id===$('saved-setups').value);if(!study)return
+    cancelSectionDetection()
     formId=study.formId;lighting=study.lighting;$('form').value=formId;$('quality').value=study.quality
     partDraft=null;parts=[];activePartId=null
     await setMaterial(materials.find(item=>item.id===study.materialId) || material)
@@ -670,7 +722,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     }
   })
   const visibility=()=>{if(document.hidden&&mode==='camera')freeze()};listen(document,'visibilitychange',visibility)
-  const dispose=()=>{if(disposed)return;disposed=true;clearInterval(generationClock);epoch++;materialVersion++;generationAbort?.abort();lifecycle.abort();segmentation.dispose();depthEngine.dispose();analysisEngine.dispose();exportEngine.dispose();for(const ready of lightingWaiters)ready();stopCamera();pbr?.dispose();renderer?.dispose();if(exportUrl)URL.revokeObjectURL(exportUrl);window.removeEventListener('pagehide',dispose)}
+  const dispose=()=>{if(disposed)return;disposed=true;clearInterval(generationClock);epoch++;materialVersion++;generationAbort?.abort();lifecycle.abort();segmentation.dispose();sectionEngine.dispose();depthEngine.dispose();analysisEngine.dispose();exportEngine.dispose();for(const ready of lightingWaiters)ready();stopCamera();pbr?.dispose();renderer?.dispose();if(exportUrl)URL.revokeObjectURL(exportUrl);window.removeEventListener('pagehide',dispose)}
   window.addEventListener('pagehide',dispose,{once:true})
   renderSwatches();renderParts();updateMaterialCard();updateControls()
   void refreshGenerationConnection()

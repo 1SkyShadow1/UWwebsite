@@ -8,6 +8,7 @@ import { aiProviderName } from './ai-providers.mjs'
 import { materials as catalogueMaterials } from '../src/data/materials.js'
 import { REGION_COLORS, MAX_PARTS, PART_TYPES } from '../src/studio/part-regions.js'
 import { generationModel, pollinationsDetails, pollinationsModelProfile } from './studio-models.mjs'
+import { createFabricCompositor, editFabricRegions } from './studio-fabric-passes.mjs'
 export { pollinationsModelProfile } from './studio-models.mjs'
 
 export class StudioGenerationError extends Error {
@@ -72,7 +73,7 @@ export function validatePartFabrics(body){
 export function generationDigest(provider,body,model=''){
   validateNativeSize(body.nativeSize)
   const components=validatePartFabrics(body)
-  return createHash('sha256').update(provider).update(model).update(body.materialId).update(body.nativeSize || 'default').update(body.imageData).update(body.maskData).update(body.regionData || '').update(JSON.stringify(components)).update(String(body.keepRest===true)).digest('hex')
+  return createHash('sha256').update('isolated-fabrics-v1').update(provider).update(model).update(body.materialId).update(body.nativeSize || 'default').update(body.imageData).update(body.maskData).update(body.regionData || '').update(JSON.stringify(components)).update(String(body.keepRest===true)).digest('hex')
 }
 
 export async function prepareGeneration(body,material,{maximumEdge=3840}={}){
@@ -84,7 +85,7 @@ export async function prepareGeneration(body,material,{maximumEdge=3840}={}){
   catch{reject(400,'The photograph or selection mask is damaged. Upload the photograph again.')}
   if(!allowedFormats.has(photoInfo.format)||photoInfo.pages>1||maskInfo.pages>1)reject(400,'Use a single-frame PNG, JPEG or WebP photograph.')
   if(maskInfo.format!=='png'||!maskInfo.hasAlpha||maskInfo.width!==photoInfo.width||maskInfo.height!==photoInfo.height)reject(400,'The transparent selection mask must match the photograph exactly. Select the upholstery again.')
-  let alpha=await decoder(mask).extractChannel('alpha').raw().toBuffer(),regionGuide
+  let alpha=await decoder(mask).extractChannel('alpha').raw().toBuffer(),regionLabels
   if(components.length){
     const regions=imageBuffer(body.regionData,'Part selection map')
     let info,pixels
@@ -93,14 +94,14 @@ export async function prepareGeneration(body,material,{maximumEdge=3840}={}){
     if(info.format!=='png'||info.pages>1||info.width!==photoInfo.width||info.height!==photoInfo.height||pixels.length!==alpha.length*4)reject(400,'The part selection map must match the photograph.')
     const rgbKey=(r,g,b)=>(r<<16)|(g<<8)|b
     const colors=new Map(REGION_COLORS.map((color,i)=>[rgbKey(...color),i])),counts=new Uint32Array(components.length)
+    regionLabels=new Uint8Array(alpha.length)
     for(let p=0;p<alpha.length;p++){
       const i=p*4,label=colors.get(rgbKey(pixels[i],pixels[i+1],pixels[i+2]))
       if(pixels[i+3]!==255||label===undefined||label>components.length+1||(body.keepRest&&label===1))reject(400,'The part selection map contains an unknown region.')
-      if(!label||alpha[p]>230){pixels[i]=pixels[i+1]=pixels[i+2]=0;alpha[p]=255}
-      else if(label>1)counts[label-2]++
+      if(!label||alpha[p]>230)alpha[p]=255
+      else{regionLabels[p]=label;if(label>1)counts[label-2]++}
     }
     if(counts.some(count=>count<16))reject(400,'Each part must cover visible selected upholstery. Adjust its outline before generating.')
-    regionGuide=await sharp(pixels,{raw:{width:photoInfo.width,height:photoInfo.height,channels:4}}).png().toBuffer()
     mask=await sharp({create:{width:photoInfo.width,height:photoInfo.height,channels:3,background:'#fff'}}).joinChannel(alpha,{raw:{width:photoInfo.width,height:photoInfo.height,channels:1}}).png().toBuffer()
   }
   let selected=0
@@ -109,7 +110,7 @@ export async function prepareGeneration(body,material,{maximumEdge=3840}={}){
   const size=generationSize(photoInfo.width,photoInfo.height,maximumEdge)
   const image=await decoder(input).png().toBuffer()
   const [fabric,...partFabrics]=await Promise.all([material,...components.map(part=>catalogueMaterials.find(item=>item.id===part.materialId))].map(prepareFabric))
-  return {image,input,mask,fabric,size,photoInfo,nativeSize,regionGuide,components:components.map((part,i)=>({...part,material:catalogueMaterials.find(item=>item.id===part.materialId),fabric:partFabrics[i],color:REGION_COLORS[i+2]})),keepRest:body.keepRest===true}
+  return {image,input,mask,fabric,size,photoInfo,nativeSize,regionLabels,components:components.map((part,i)=>({...part,material:catalogueMaterials.find(item=>item.id===part.materialId),fabric:partFabrics[i]})),keepRest:body.keepRest===true}
 }
 
 async function prepareFabric(material){
@@ -165,14 +166,8 @@ async function selectionGuide(prepared){
 }
 
 function guidedPrompt(material,prepared){
-  let prompt=upholsteryPrompt(material).replace('inside the transparent mask','inside the white area of image 3')
-  if(prepared.components?.length){
-    const response=item=>`${item.name}, ${item.shade}, ${item.color}. ${materialResponse(item).description}`
-    const instructions=prepared.components.map((part,i)=>`Part ${i+1} (${part.type}), guide colour RGB ${part.color.join(',')}: use ONLY the fabric swatch in image ${i+4}, ${response(part.material)}.`).join('\n')
-    prompt=prompt.replace(/Reupholster ONLY[^\n]+/,`Use the colour-coded regions in image 3 to assign separate fabrics. ${prepared.keepRest?'Keep all other upholstery exactly as photographed. Image 2 is unused; never apply it to protected areas.':`White regions use the main fabric in image 2: ${response(material)}.`}\n${instructions}`)
-    prompt+='\nRespect every coloured boundary: never spread a cushion fabric onto the seat, arms or adjacent cushions. Every swatch is a material reference, not a scene or a panel shape.'
-  }
-  return prompt+'\nImage 3 is a selection guide only: black means protected original; every other colour identifies upholstery to replace as instructed. Never reproduce the guide in the output. This is an image edit, not a redesign. Preserve the entire framing of image 1 and every cushion and seam in its original position. Do not zoom, crop, move, reshape or restage the furniture. Return one photographic edit, not a swatch, illustration or rendered texture layer.'
+  if(prepared.components?.length)reject(500,'Separate fabrics must be prepared as isolated edits.')
+  return upholsteryPrompt(material).replace('inside the transparent mask','inside the white area of image 3')+'\nImage 3 is a strict selection guide: white means edit in the one fabric shown in image 2; black means preserve exactly, including other furniture panels. Never reproduce the guide in the output. This is an image edit, not a redesign. Preserve the entire framing of image 1 and every cushion and seam in its original position. Do not zoom, crop, move, reshape or restage the furniture. Return one photographic edit, not a swatch, illustration or rendered texture layer.'
 }
 
 export async function editWithPollinations(prepared,material,{key,signal,model=generationModel('pollinations',prepared.nativeSize),quality='high',fetchImpl=fetch}={}){
@@ -182,22 +177,22 @@ export async function editWithPollinations(prepared,material,{key,signal,model=g
   const {width:sourceWidth,height:sourceHeight}=prepared.photoInfo
   const scale=Math.min(edge/Math.max(sourceWidth,sourceHeight),Math.sqrt(profile.maximumPixels/(sourceWidth*sourceHeight)))
   const width=Math.max(128,Math.floor(sourceWidth*scale/16)*16),height=Math.max(128,Math.floor(sourceHeight*scale/16)*16)
-  const guide=prepared.regionGuide || await selectionGuide(prepared)
+  const prompt=guidedPrompt(material,prepared),guide=await selectionGuide(prepared)
   // A compact photographic input and JPEG swatches avoid megabytes of PNG
   // texture transport; the original and exact mask stay intact for compositing.
-  const [photo,...swatches]=await Promise.all([
+  const [photo,swatch]=await Promise.all([
     decoder(prepared.input || prepared.image).resize({width:nativeSize==='1K'?1280:2048,height:nativeSize==='1K'?1280:2048,fit:'inside',withoutEnlargement:true}).flatten({background:'#f4f1eb'}).jpeg({quality:92,chromaSubsampling:'4:4:4'}).toBuffer(),
-    ...[prepared.fabric,...(prepared.components || []).map(part=>part.fabric)].map(bytes=>decoder(bytes).jpeg({quality:90,chromaSubsampling:'4:4:4'}).toBuffer()),
+    decoder(prepared.fabric).jpeg({quality:90,chromaSubsampling:'4:4:4'}).toBuffer(),
   ])
   const jpeg=bytes=>({image_url:`data:image/jpeg;base64,${bytes.toString('base64')}`})
-  const references=[jpeg(photo),jpeg(swatches[0]),{image_url:`data:image/png;base64,${guide.toString('base64')}`},...swatches.slice(1).map(jpeg)]
+  const references=[jpeg(photo),jpeg(swatch),{image_url:`data:image/png;base64,${guide.toString('base64')}`}]
   let response
   try{
     response=await fetchImpl('https://gen.pollinations.ai/v1/images/edits',{
       method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'},signal,
       // Models such as Klein reject `resolution`; the shared edits API accepts
       // exact pixel dimensions through `size` for these image models.
-      body:JSON.stringify({model,prompt:guidedPrompt(material,prepared),image:references,size:`${width}x${height}`,quality,n:1,response_format:'b64_json'}),
+      body:JSON.stringify({model,prompt,image:references,size:`${width}x${height}`,quality,n:1,response_format:'b64_json'}),
     })
   }catch(error){if(signal?.aborted)throw error;reject(502,'The Pollinations connection was interrupted. Your original photograph is still available.')}
   if(!response.ok){
@@ -261,6 +256,7 @@ export function googleEditFrame(width,height){
 
 export async function editWithGoogle(prepared,material,{key,signal,model=process.env.GOOGLE_IMAGE_MODEL || 'gemini-3.1-flash-image',quality='high',fetchImpl=fetch}={}){
   if(!/^[a-zA-Z0-9._-]+$/.test(model))reject(503,'Choose a valid Google image model on the server.')
+  const prompt=guidedPrompt(material,prepared)+'\nPreserve the entire framing of image 1, including any narrow protective border.'
   const imageSize=quality==='low'?'1K':prepared.nativeSize || process.env.GOOGLE_IMAGE_SIZE || '1K'
   if(!['1K','2K','4K'].includes(imageSize))reject(503,'Choose 1K, 2K or 4K for GOOGLE_IMAGE_SIZE.')
   const selection=await decoder(prepared.mask).extractChannel('alpha').raw().toBuffer()
@@ -269,15 +265,14 @@ export async function editWithGoogle(prepared,material,{key,signal,model=process
   const padding={left:frame.left,top:frame.top,right:frame.width-sourceWidth-frame.left,bottom:frame.height-sourceHeight-frame.top}
   const [photo,guide]=await Promise.all([
     decoder(prepared.image).extend({...padding,background:'#e8e6e2'}).png().toBuffer(),
-    (prepared.regionGuide?decoder(prepared.regionGuide):sharp(selection,{raw:{width:sourceWidth,height:sourceHeight,channels:1}})).extend({...padding,background:'#000'}).png().toBuffer(),
+    sharp(selection,{raw:{width:sourceWidth,height:sourceHeight,channels:1}}).extend({...padding,background:'#000'}).png().toBuffer(),
   ])
   const inline=bytes=>({inline_data:{mime_type:'image/png',data:bytes.toString('base64')}})
-  const prompt=guidedPrompt(material,prepared)+'\nPreserve the entire framing of image 1, including any narrow protective border.'
   let response
   try{
     response=await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{
       method:'POST',headers:{'x-goog-api-key':key,'Content-Type':'application/json'},signal,
-      body:JSON.stringify({contents:[{role:'user',parts:[{text:prompt},inline(photo),inline(prepared.fabric),inline(guide),...(prepared.components || []).map(part=>inline(part.fabric))]}],generationConfig:{responseModalities:['TEXT','IMAGE'],candidateCount:1,maxOutputTokens:8192,imageConfig:{imageSize,aspectRatio:frame.aspectRatio}}}),
+      body:JSON.stringify({contents:[{role:'user',parts:[{text:prompt},inline(photo),inline(prepared.fabric),inline(guide)]}],generationConfig:{responseModalities:['TEXT','IMAGE'],candidateCount:1,maxOutputTokens:8192,imageConfig:{imageSize,aspectRatio:frame.aspectRatio}}}),
     })
   }catch(error){if(signal?.aborted)throw error;reject(502,'The Google AI connection was interrupted. Your original photograph is still available.')}
   if(!response.ok){
@@ -306,21 +301,9 @@ export async function editWithGoogle(prepared,material,{key,signal,model=process
 }
 
 export async function compositeGeneration(prepared,generated){
-  const {width,height}=generated
-  if(width*height>20_000_000||width<128||height<128)reject(502,'The AI returned an unsupported image size.')
-  if(Math.abs(width/height-prepared.photoInfo.width/prepared.photoInfo.height)/(prepared.photoInfo.width/prepared.photoInfo.height)>.04)reject(502,'The AI changed the framing too much. Refine the selection and try again.')
-  // Preserve the actual room. Only the newly generated upholstery is composited;
-  // no texture overlay, source shading multiplication or shader touches it.
-  // Extract and invert explicitly: Sharp can reorder channel extraction relative
-  // to negate/removeAlpha, which otherwise reverses the protected room mask.
-  const inverted=await decoder(prepared.mask).extractChannel('alpha').raw().toBuffer()
-  for(let p=0;p<inverted.length;p++)inverted[p]=255-inverted[p]
-  const alpha=await sharp(inverted,{raw:{width:prepared.photoInfo.width,height:prepared.photoInfo.height,channels:1}}).resize(width,height,{fit:'fill'}).blur(.5).toColourspace('b-w').raw().toBuffer()
-  const rgb=await decoder(generated.image).toColourspace('srgb').removeAlpha().raw().toBuffer(),rgba=Buffer.alloc(width*height*4)
-  for(let p=0;p<alpha.length;p++){rgba[p*4]=rgb[p*3];rgba[p*4+1]=rgb[p*3+1];rgba[p*4+2]=rgb[p*3+2];rgba[p*4+3]=alpha[p]}
-  const foreground=await sharp(rgba,{raw:{width,height,channels:4}}).png().toBuffer()
-  const result=await decoder(prepared.image).resize(width,height,{fit:'fill'}).composite([{input:foreground}]).png().toBuffer()
-  return {imageData:`data:image/png;base64,${result.toString('base64')}`,width,height,nativeWidth:width,nativeHeight:height,model:generated.model}
+  const alpha=await decoder(prepared.mask).extractChannel('alpha').raw().toBuffer()
+  const labels=Uint8Array.from(alpha,value=>value<255?1:0),compositor=createFabricCompositor(prepared,labels)
+  await compositor.add(generated,[1]);return compositor.finish()
 }
 
 export function createStudioGenerationService({getKey=getAiCredential,isConfigured=aiCredentialConfigured,getProvider=getAiProvider,edit,now=Date.now,timeoutMs=240000,maxActive=2,maxCachedBytes=128_000_000,quality='high',maximumEdge=3840,env=process.env}={}){
@@ -339,10 +322,10 @@ export function createStudioGenerationService({getKey=getAiCredential,isConfigur
       if(!key)reject(503,'Generative AI is not connected. Save your API key using the local connection page.')
       job.status='generating';job.stage='Reupholstering panels, seams and light with AI…'
       const adapter=edit || (job.provider==='pollinations'?editWithPollinations:job.provider==='google'?editWithGoogle:editWithOpenAI)
-      const generated=await untilAborted(adapter(prepared,material,{key,signal:job.abort.signal,owner:job.owner,model:job.model,quality}),job.abort.signal)
+      const design=await untilAborted(editFabricRegions(prepared,material,adapter,{key,signal:job.abort.signal,owner:job.owner,model:job.model,quality},{onProgress:message=>{job.stage=message}}),job.abort.signal)
       if(job.abort.signal.aborted)throw Error('cancelled')
       job.status='finishing';job.stage='Protecting the room and preparing the clean result…'
-      job.result=await compositeGeneration(prepared,generated)
+      job.result=await design.finish()
       if(job.abort.signal.aborted)throw Error('cancelled')
       job.status='complete';job.stage='AI reupholstery is ready.'
       let bytes=[...jobs.values()].reduce((sum,item)=>sum+(item.result?.imageData.length || 0),0)
@@ -356,7 +339,7 @@ export function createStudioGenerationService({getKey=getAiCredential,isConfigur
   return {
     async capabilities(){
       const provider=await getProvider(),model=modelFor(provider),details=provider==='pollinations'?pollinationsDetails(env):null
-      return {configured:await isConfigured(),provider:aiProviderName(provider),model,quality,supportedNativeSizes:details?.map(item=>item.size) || ['1K','2K','4K'],detailModels:details,maximumParts:provider==='openai'?0:MAX_PARTS,requestedNativeSize:provider==='pollinations'?'1K':provider==='google'?(quality==='low'?'1K':env.GOOGLE_IMAGE_SIZE || '1K'):undefined,retentionMinutes:15,maximumNativePixels:provider==='openai'?Math.min(8_294_400,maximumEdge*maximumEdge):20_000_000,maximumNativeEdge:provider==='openai'?maximumEdge:6144,photosSentOnRequest:true}
+      return {configured:await isConfigured(),provider:aiProviderName(provider),model,quality,supportedNativeSizes:details?.map(item=>item.size) || ['1K','2K','4K'],detailModels:details,maximumParts:provider==='openai'?0:MAX_PARTS,separateFabricMode:'isolated-edits',maximumFabricEdits:MAX_PARTS+1,requestedNativeSize:provider==='pollinations'?'1K':provider==='google'?(quality==='low'?'1K':env.GOOGLE_IMAGE_SIZE || '1K'):undefined,retentionMinutes:15,maximumNativePixels:provider==='openai'?Math.min(8_294_400,maximumEdge*maximumEdge):20_000_000,maximumNativeEdge:provider==='openai'?maximumEdge:6144,photosSentOnRequest:true}
     },
     async start(owner,body,key,materials,{prepared:preparedInput}={}){
       trim()

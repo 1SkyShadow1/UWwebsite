@@ -1,6 +1,14 @@
 # Store and showroom validation
 
-Latest local review: 20 October 2026.
+Latest local review: 22 October 2026.
+
+## Fabric isolation and automatic sections — 22 October 2026
+
+- All 85 tests passed, including exact pixel ownership against a provider fixture that changes the entire frame. Main, cushion and room pixels remain assigned correctly; mixed native resolutions do not filter another fabric across a part boundary. Matching fabrics share a call, a failed pass stops queued calls, and hosted preparation, private results, cancellation and duplicate-safe retries remain covered.
+- The production build passed with 87 modules and 12 entries. All 237 catalogue assets exist. Pinned local SlimSAM and EfficientDet weights pass SHA-256 integrity checks; the section runtime uses existing local ONNX WASM assets.
+- Actual browser WASM inference found six contours on the public sample sofa and four on an uploaded editorial chair. The chair's timber legs and room stayed outside the outlines. Assigning leather to one sofa section and linen to another preserved the main velvet and all other assignments. Stopping a subsequent detection kept the five existing sections and both distinct fabrics intact. A material-only upload produced no furniture selection and left Generate disabled. The checked phone layout at 390 CSS pixels had no horizontal overflow. No browser errors or warnings were observed in these flows.
+- A local offline end-to-end generation made exactly three isolated adapter calls for velvet, leather and linen, each with zero other-fabric components, then completed the combined design. This fixture is transport/workflow evidence, not an AI image-quality proof. No paid provider generation was made during these checks. Native provider quality and processing speed need a separately authorized live request; the previous high-detail test encountered insufficient Pollinations budget.
+- Automatic contours remain reviewable and replaceable. This does not prove correct semantic segmentation for every customer photograph or physical-device camera behaviour. Local detection uses no provider credits; explicit generation uses one paid edit per distinct fabric, with a maximum of seven and two concurrent calls. Saved recipes contain material choices only, without photographs, section bitmaps, masks or outlines.
 
 ## Pollinations editing — 20 October 2026
 

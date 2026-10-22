@@ -2,7 +2,18 @@
 // one is the main upholstery, and subsequent labels identify outlined parts.
 export const REGION_COLORS=Object.freeze([[0,0,0],[255,255,255],[247,183,49],[55,174,240],[232,100,154],[125,200,111],[175,136,235],[236,129,73]])
 export const MAX_PARTS=REGION_COLORS.length-2
-export const PART_TYPES=Object.freeze(['Cushion','Seat','Backrest','Arm','Footstool','Other part'])
+export const PART_TYPES=Object.freeze(['Cushion','Seat','Backrest','Arm','Footstool','Other part','Section'])
+
+export const plannedFabricEdits=(mainId,parts,keepRest=false)=>new Set([...(keepRest?[]:[mainId]),...parts.map(part=>part.materialId)]).size
+
+export function partContainsPoint(part,x,y){
+  const region=part.region
+  if(region){
+    if(x<0||y<0||x>1||y>1||!region.width||!region.height||region.values.length!==region.width*region.height)return false
+    return Boolean(region.values[Math.min(region.height-1,Math.floor(y*region.height))*region.width+Math.min(region.width-1,Math.floor(x*region.width))])
+  }
+  return pointInOutline(x,y,part.points)
+}
 
 export function polygonArea(points){
   let area=0
@@ -30,11 +41,11 @@ export function buildPartRegions(mask,width,height,parts,{keepRest=false}={}){
   // Later outlines take precedence where parts overlap. Every edit stays
   // clipped to the upholstery selection, including a partly outlined cushion.
   parts.forEach((part,index)=>{
-    const minX=Math.max(0,Math.floor(Math.min(...part.points.map(p=>p.x))*width)),maxX=Math.min(width-1,Math.ceil(Math.max(...part.points.map(p=>p.x))*width))
-    const minY=Math.max(0,Math.floor(Math.min(...part.points.map(p=>p.y))*height)),maxY=Math.min(height-1,Math.ceil(Math.max(...part.points.map(p=>p.y))*height))
+    const minX=part.region?0:Math.max(0,Math.floor(Math.min(...part.points.map(p=>p.x))*width)),maxX=part.region?width-1:Math.min(width-1,Math.ceil(Math.max(...part.points.map(p=>p.x))*width))
+    const minY=part.region?0:Math.max(0,Math.floor(Math.min(...part.points.map(p=>p.y))*height)),maxY=part.region?height-1:Math.min(height-1,Math.ceil(Math.max(...part.points.map(p=>p.y))*height))
     for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++){
       const p=y*width+x
-      if(mask[p]>.1&&pointInOutline((x+.5)/width,(y+.5)/height,part.points))labels[p]=index+2
+      if(mask[p]>.1&&partContainsPoint(part,(x+.5)/width,(y+.5)/height))labels[p]=index+2
     }
   })
   const selection=new Float32Array(mask.length)
@@ -44,5 +55,5 @@ export function buildPartRegions(mask,width,height,parts,{keepRest=false}={}){
 }
 
 export function partsFingerprint(parts,keepRest){
-  return JSON.stringify([keepRest,...parts.map(({id,type,materialId,points})=>[id,type,materialId,points.map(p=>[p.x,p.y])])])
+  return JSON.stringify([keepRest,...parts.map(({id,type,materialId,points,region})=>[id,type,materialId,points.map(p=>[p.x,p.y]),region?.signature])])
 }

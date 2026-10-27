@@ -1,4 +1,5 @@
 import { roomEdits } from '../data/discovery.js'
+import { renderShowroomStory } from '../features/showroom-photos.js'
 
 export function renderHome({ materials, state, shopProducts, shopProductCard }) {
   const edit = ['boucle', 'linen', 'velvet', 'leather'].map(id => materials.find(item => item.id === id)).filter(Boolean)
@@ -11,6 +12,8 @@ export function renderHome({ materials, state, shopProducts, shopProductCard }) 
     <div class="mood-rail"><span>A DIFFERENT FEEL, A DIFFERENT STORY.</span><div role="group" aria-label="Choose an inspiration mood"><button type="button" data-home-mood="leather" aria-pressed="true"><i style="background:#996543"></i>Warm & natural</button><button type="button" data-home-mood="velvet" aria-pressed="false"><i style="background:#355e50"></i>Deep & expressive</button><button type="button" data-home-mood="boucle" aria-pressed="false"><i style="background:#c1b7a2"></i>Soft & sculptural</button></div><small>INSPIRATION / NOT A FINISHED PROJECT</small></div>
 
     <div class="showroom-paths"><a href="/catalogue.html"><span>01 / FIND A PIECE</span><strong>${shopProducts.length} considered favourites <b>↗</b></strong></a><button type="button" data-open-finder><span>02 / FIND A FEELING</span><strong>Your fabric, with a little guidance <b>↗</b></strong></button><a href="/ai-studio.html"><span>03 / SEE THE POSSIBILITY</span><strong>Try a surface on your own furniture <b>↗</b></strong></a></div>
+
+    ${renderShowroomStory()}
 
     <section class="section room-edit"><div class="section-heading"><div><p class="spec-label">THE SPACES THAT MAKE A HOME</p><h2>A place for<br><em>every kind of living.</em></h2></div><a class="text-link" href="/catalogue.html">Explore the collection ↗</a></div><div class="room-edit-grid">${roomEdits.map(edit => { const item = shopProducts.find(product => product.id === edit.productId); return `<a class="room-edit-card" href="/catalogue.html?category=${encodeURIComponent(edit.category)}#shop-collection"><div><img src="${item.image}" alt="Illustrative furniture inspiration for ${edit.name.toLowerCase()}" loading="lazy"><span>Explore ${shopProducts.filter(product => product.category === edit.category).length} pieces ↗</span></div><h3>${edit.name}</h3><p>${edit.note}</p></a>` }).join('')}</div></section>
 

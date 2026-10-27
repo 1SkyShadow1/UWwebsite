@@ -1,5 +1,6 @@
 import { escapeHtml } from '../lib/html.js'
 import { normaliseSearch } from '../data/discovery.js'
+import { showroomPhotoLink } from '../features/showroom-photos.js'
 
 export function renderMaterials({ materials, state, materialGroups, materialUses, materialCard }) {
   const matches = material => (
@@ -12,7 +13,7 @@ export function renderMaterials({ materials, state, materialGroups, materialUses
 
   return `<section class="swatchbook-hero">
     <div class="swatchbook-copy"><p class="spec-label gold-text">THE TEXTILE ROOM</p><h1>Find your<br><em>favourite feeling.</em></h1><p>Velvet that catches the light. Linen with a little character. A weave that feels like home. Explore ${materials.length} material directions and find the ones that speak to you.</p><div class="swatchbook-stats"><span><b>${materials.length}</b> MATERIAL DIRECTIONS</span><span><b>${materialGroups.length}</b> SURFACE FAMILIES</span><span><b>3</b> TO COMPARE SIDE BY SIDE</span></div></div>
-    <div class="swatchbook-hero-swatch" aria-hidden="true"><img src="/assets/stitch/stitch-boucle.png" alt=""><span>TOUCH / TURN / COMPARE</span><b>THE<br>TEXTILE<br>ROOM</b><i>UW / MATERIAL STUDY</i></div>
+    <div class="swatchbook-showroom">${showroomPhotoLink('inside',{caption:'The real textile room / look inside',sizes:'(max-width:700px) 92vw, 46vw',loading:'eager'})}<span class="showroom-print-note">Start with a swatch. Finish with a feeling.</span></div>
   </section>
   <section class="swatchbook-intro"><div><span class="swatchbook-kicker">01 / GET A LITTLE CLOSER</span><h2>A different texture.<br><em>A different story.</em></h2><button class="text-link" type="button" data-open-finder>Help me find my fabric ↗</button></div><p>Turn a swatch to discover its feel, uses and care. Save up to eight favourites, or compare three side by side. These photographed textures and illustrative studies are a starting point; always confirm an exact physical sample.</p></section>
   <section class="material-compass" aria-label="Curated material paths"><button type="button" data-family-filter="Loops & texture"><span>01</span><small>SOFT SCULPTURE</small><strong>Bouclé, fleece & loops</strong><i>Explore tactile surfaces ↗</i></button><button type="button" data-family-filter="Natural fibres"><span>02</span><small>NATURAL CHARACTER</small><strong>Wool, cotton & alpaca</strong><i>Explore honest fibres ↗</i></button><button type="button" data-family-filter="Technical"><span>03</span><small>HARDWORKING SURFACES</small><strong>Contract & specialist cloth</strong><i>Explore technical textiles ↗</i></button></section>

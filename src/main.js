@@ -21,12 +21,14 @@ import { readLocal, writeLocal, request } from './lib/api.js'
 import { bindProjects, savePlanDraft, planPayload } from './features/projects.js'
 import { bindComparison } from './features/comparison.js'
 import { bindOverlays } from './features/accessibility.js'
+import { bindShowroomPhotos } from './features/showroom-photos.js'
 import { bindStorefront, paintShoppingUi, productDetailMarkup, recordRecentProduct, storefrontMarkup } from './features/storefront.js'
 import { createShoppingSync } from './features/shopping-sync.js'
 import { normaliseSearch } from './data/discovery.js'
 import { icon } from './lib/icons.js'
 import './atelier.css'
 import './store.css'
+import './showroom-photos.css'
 import './studio/studio-next.css'
 
 const initialTheme = readLocal('uw-theme', 'light')
@@ -446,6 +448,7 @@ function render() {
   bindProjects({ state, materials, notify, signal: pageController.signal })
   bindComparison({ state, materials, notify, signal: pageController.signal })
   bindOverlays({ signal: pageController.signal })
+  bindShowroomPhotos({ signal: pageController.signal })
   paintShoppingUi(state, shopProductCard, shoppingSync?.status)
   if (state.route === 'studio') disposeStudio = mountStudio(materials, { isSaved:id => state.swatches.includes(id) })
   window.scrollTo({ top: scrollY, behavior: 'instant' })
@@ -893,6 +896,11 @@ export function mountPage(pageKey) {
   mountLoader(pageKey)
   document.body.dataset.page = pageKey
   render()
+  // These sections are rendered by JavaScript, after the browser's first hash lookup.
+  if (['#our-showroom', '#visit-showroom'].includes(window.location.hash)) {
+    const anchor = document.getElementById(window.location.hash.slice(1))
+    requestAnimationFrame(() => anchor?.isConnected && anchor.scrollIntoView({ behavior: 'instant', block: 'start' }))
+  }
   shoppingSync ||= createShoppingSync({ state, onChange: status => { syncCartUi(); paintShoppingUi(state, shopProductCard, status); if (state.shopSavedOnly) renderShopResults() } })
   restoreShortlist()
 }

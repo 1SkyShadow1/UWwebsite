@@ -95,7 +95,8 @@ main { padding-top: var(--header-height); }
 }
 .brand-lockup { min-width: 0; flex-shrink: 0; }
 .brand-lockup .brand-logo { width: 300px; height: auto; aspect-ratio: 858 / 210; object-fit: contain; filter: none; }
-.site-header .brand-lockup .brand-logo { width: 300px; height: auto; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+/* Enlarge the artwork without changing the header or neighbouring controls' layout. */
+.site-header .brand-lockup .brand-logo { width: 300px; height: auto; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; transform: scale(1.15); transform-origin: left center; }
 .site-nav { gap: 22px; padding: 0; background: none; border: none; border-radius: 0; box-shadow: none; font-size: 14px; }
 .site-nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 10px 0; border-radius: 0; color: #d6d6d6; }
 .site-nav a.active { background: none; color: var(--text); border-bottom: 1px solid var(--gold); box-shadow: none; font-weight: 500; }
@@ -540,7 +541,7 @@ body:has(.comparison-tray:not([hidden])) .site-toast { bottom: 135px; }
   .site-announcement a { display: none; }
   .site-header, .theme-light .site-header { padding: 8px 16px; gap: 8px; flex-wrap: wrap; align-content: center; justify-content: center; }
   .site-header .brand-lockup { flex-basis: 100%; justify-content: center; }
-  .site-header .brand-lockup .brand-logo { width: clamp(216px, 64vw, 256px); }
+  .site-header .brand-lockup .brand-logo { width: clamp(216px, 64vw, 256px); transform-origin: center; }
   .header-tools { width: 100%; justify-content: space-between; }
   .header-project { display: none; }
   .mobile-menu { font-size: 24px; }

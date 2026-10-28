@@ -10,6 +10,7 @@ import { hostedPostgresOptions } from '../server/postgres-connection.mjs'
 import { Client } from 'pg'
 import { prepareGeneration } from '../server/studio-generation.mjs'
 import { readProgressJson } from '../src/lib/progress-json.js'
+import { identifiedPartsFixture } from './helpers/identified-parts.mjs'
 
 test('Supabase pooler URLs retain CA and hostname verification when pg parses integration SSL parameters',()=>{
   for(const host of ['aws-0-eu-west-1.pooler.supabase.com','db.exampleproject.supabase.co']){
@@ -25,6 +26,26 @@ test('Supabase pooler URLs retain CA and hostname verification when pg parses in
   assert.equal(hostedPostgresOptions({DATABASE_URL:neon}).connectionString,neon)
   assert.equal(hostedPostgresOptions({}),null)
   assert.throws(()=>hostedPostgresOptions({DATABASE_URL:'invalid-secret-value'}),error=>!error.message.includes('invalid-secret-value'))
+})
+
+test('hosted cushion identification is private, durable and never duplicates or starts an image edit',async t=>{
+  const {server,call}=await fixture(t),{body}=await identifiedPartsFixture()
+  let recognitions=0
+  const options={env:{GEMINI_API_KEY:'offline-google',POLLINATIONS_API_KEY:'offline-pollinations'},pollMs:2,
+    identify:async(prepared,{key})=>{recognitions++;assert.equal(key,'offline-google');return {furniture:'Couch',parts:prepared.components.map((part,i)=>({id:part.id,type:['Pillow','Seat cushion','Arm'][i]}))}},
+    edit:()=>{throw Error('Identification must not generate an image')}}
+  const first=await server(options),second=await server(options),headers={'Idempotency-Key':randomUUID()}
+  const capability=await call(first,'/api/studio/capabilities')
+  assert.equal(capability.data.generation.partSelectionMode,'cushions-and-main')
+  assert.equal(capability.data.generation.partIdentification.automaticByDefault,false)
+  const result=await call(first,'/api/studio/parts/identify',{method:'POST',body,headers})
+  assert.equal(result.status,202);assert.equal(result.data.status,'complete');assert.equal(result.data.operation,'identify-parts')
+  const retry=await call(second,'/api/studio/parts/identify',{method:'POST',body,headers})
+  assert.equal(retry.data.id,result.data.id);assert.equal(recognitions,1)
+  assert.equal((await call(second,`/api/studio/generations/${result.data.id}`,{key:randomUUID()+randomUUID()})).status,404)
+  assert.equal((await call(second,'/api/studio/generations',{method:'POST',body,headers})).status,409)
+  assert.equal(result.data.imageData,undefined);assert.equal(result.data.regionData,undefined)
+  assert.ok(!JSON.stringify(result.data).includes('offline-google'))
 })
 
 // PGlite runs real PostgreSQL in-process. Its single connection is serialized
@@ -193,13 +214,37 @@ test('hosted 2K edits reuse validated inputs and stream owner-private progress b
 
 test('saved part-fabric recipes survive function instances without saving photographs, masks or outlines',async t=>{
   const {server,call}=await fixture(t),first=await server({env:{}}),second=await server({env:{}})
-  const body={materialId:'velvet',formId:'wingback',lighting:'daylight',mode:'photo',quality:'4k',nativeSize:'4K',keepRest:true,name:'Separate cushion materials',components:[{id:'cushion-1',type:'Cushion',materialId:'leather',points:[{x:.1,y:.2}]}],imageData:'private-photo-not-for-storage',regionData:'private-outline-not-for-storage'}
+  const body={materialId:'velvet',formId:'wingback',lighting:'daylight',mode:'photo',quality:'4k',generationMode:'realism',nativeSize:'4K',keepRest:true,name:'Separate cushion materials',components:[{id:'cushion-1',type:'Cushion',materialId:'leather',points:[{x:.1,y:.2}]}],imageData:'private-photo-not-for-storage',regionData:'private-outline-not-for-storage'}
   const headers={'Idempotency-Key':randomUUID()},saved=await call(first,'/api/studio/designs',{method:'POST',body,headers})
   assert.equal(saved.status,201);assert.equal(saved.data.nativeSize,'4K');assert.equal(saved.data.keepRest,true)
+  assert.equal(saved.data.generationMode,'realism')
   assert.deepEqual(saved.data.components,[{id:'cushion-1',type:'Cushion',materialId:'leather'}])
   assert.equal(saved.data.imageData,undefined);assert.equal(saved.data.regionData,undefined)
   const restored=await call(second,'/api/studio/designs')
   assert.equal(restored.data[0].id,saved.data.id);assert.deepEqual(restored.data[0].components,saved.data.components)
+  assert.equal(restored.data[0].generationMode,'realism')
+  for(const generationMode of ['quick','invalid'])assert.equal((await call(first,'/api/studio/designs',{method:'POST',body:{...body,generationMode},headers:{'Idempotency-Key':randomUUID()}})).status,400)
   assert.deepEqual((await call(second,'/api/studio/designs',{key:randomUUID()+randomUUID()})).data,[])
   assert.equal((await call(first,'/api/studio/designs',{method:'POST',body:{...body,components:[{...body.components[0],materialId:'unknown'}]},headers:{'Idempotency-Key':randomUUID()}})).status,400)
+})
+
+test('hosted Quick and Realism independently route keys and sizes while retaining durable mode isolation',async t=>{
+  const {server,call}=await fixture(t),body=await (async()=>{
+    const image=await sharp({create:{width:256,height:192,channels:3,background:'#ddd'}}).png().toBuffer(),pixels=Buffer.alloc(256*192*4,255)
+    for(let y=30;y<160;y++)for(let x=30;x<225;x++)pixels[(y*256+x)*4+3]=0
+    const mask=await sharp(pixels,{raw:{width:256,height:192,channels:4}}).png().toBuffer()
+    return {materialId:'velvet',imageData:`data:image/png;base64,${image.toString('base64')}`,maskData:`data:image/png;base64,${mask.toString('base64')}`}
+  })(),calls=[]
+  const options={env:{AI_IMAGE_PROVIDER:'pollinations',POLLINATIONS_API_KEY:'offline-pollinations',GEMINI_API_KEY:'offline-google',POLLINATIONS_IMAGE_MODEL:'black-forest-labs/flux.2-klein-4b'},pollMs:2,edit:async(prepared,_material,{key,model})=>{
+    calls.push({key,model,size:prepared.nativeSize});return {image:prepared.image,width:256,height:192,model}
+  }}
+  const first=await server(options),second=await server(options),headers={'Idempotency-Key':randomUUID()}
+  const realism=await call(first,'/api/studio/generations',{method:'POST',body:{...body,generationMode:'realism',nativeSize:'2K'},headers})
+  assert.equal(realism.data.status,'complete')
+  const retry=await call(second,'/api/studio/generations',{method:'POST',body:{...body,generationMode:'realism',nativeSize:'2K'},headers})
+  assert.equal(retry.data.id,realism.data.id);assert.equal(calls.length,1)
+  assert.equal((await call(second,'/api/studio/generations',{method:'POST',body:{...body,generationMode:'quick',nativeSize:'1K'},headers})).status,409)
+  const quick=await call(second,'/api/studio/generations',{method:'POST',body:{...body,generationMode:'quick'},headers:{'Idempotency-Key':randomUUID()}})
+  assert.equal(quick.data.status,'complete')
+  assert.deepEqual(calls,[{key:'offline-google',model:'gemini-3.1-flash-image',size:'2K'},{key:'offline-pollinations',model:'black-forest-labs/flux.2-klein-4b',size:'1K'}])
 })

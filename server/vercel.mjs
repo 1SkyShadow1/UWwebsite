@@ -27,7 +27,7 @@ function bufferResponse(real){
   }
 }
 
-export function createVercelHandler({env=process.env,pool,edit,pollMs,prepare}={}){
+export function createVercelHandler({env=process.env,pool,edit,identify,pollMs,prepare}={}){
   const connectionOptions=pool?null:hostedPostgresOptions(env)
   pool ||= connectionOptions?new Pool(connectionOptions):null
   pool?.on?.('error',()=>console.error('The hosted database pool lost an idle connection.'))
@@ -36,8 +36,8 @@ export function createVercelHandler({env=process.env,pool,edit,pollMs,prepare}={
   const store=pool?createPostgresStore(pool,{dailyLimit:limit}):null
   const provider=()=>getAiProvider({env,path:null,fallback:'google'})
   const key=async({provider:chosen}={})=>aiProviderKey(chosen || await provider(),env)
-  const configured=async()=>Boolean(await key())
-  const local=createStudioGenerationService({getProvider:provider,getKey:key,isConfigured:configured,edit,env})
+  const configured=async options=>Boolean(await key(options))
+  const local=createStudioGenerationService({getProvider:provider,getKey:key,isConfigured:configured,edit,identify,env})
   const generationService=createPersistentGeneration({store,configured,local,getProvider:provider,pollMs,env,prepare})
   const repositories=new AsyncLocalStorage()
   const repository=new Proxy({}, {get(_target,name){const database=repositories.getStore();if(!database)throw new Error('No request database');return database[name].bind(database)}})

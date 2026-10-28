@@ -2,7 +2,20 @@
 // one is the main upholstery, and subsequent labels identify outlined parts.
 export const REGION_COLORS=Object.freeze([[0,0,0],[255,255,255],[247,183,49],[55,174,240],[232,100,154],[125,200,111],[175,136,235],[236,129,73]])
 export const MAX_PARTS=REGION_COLORS.length-2
-export const PART_TYPES=Object.freeze(['Cushion','Seat','Backrest','Arm','Footstool','Other part','Section'])
+export const PART_TYPES=Object.freeze(['Cushion','Pillow','Seat cushion','Back cushion','Body panel','Seat','Backrest','Arm','Footstool','Other part','Section'])
+// Legacy panel names remain valid for old API recipes; new separations are cushion-only.
+export const CUSHION_TYPES=Object.freeze(['Cushion','Pillow','Seat cushion','Back cushion'])
+
+export function classifiedCushions(candidates,identification){
+  const names=identification?.parts
+  if(!Array.isArray(names)||names.length!==candidates.length)throw new Error('The AI did not identify every proposed region. No sections were changed.')
+  const ids=new Set(candidates.map(part=>part.id)),types=new Map()
+  for(const part of names){
+    if(!ids.has(part.id)||types.has(part.id)||!PART_TYPES.includes(part.type))throw new Error('The AI returned an invalid section. No sections were changed.')
+    types.set(part.id,part.type)
+  }
+  return candidates.filter(part=>CUSHION_TYPES.includes(types.get(part.id))).map(part=>({...part,type:types.get(part.id)}))
+}
 
 export const plannedFabricEdits=(mainId,parts,keepRest=false)=>new Set([...(keepRest?[]:[mainId]),...parts.map(part=>part.materialId)]).size
 
@@ -13,6 +26,14 @@ export function partContainsPoint(part,x,y){
     return Boolean(region.values[Math.min(region.height-1,Math.floor(y*region.height))*region.width+Math.min(region.width-1,Math.floor(x*region.width))])
   }
   return pointInOutline(x,y,part.points)
+}
+
+export function furnitureSelectionTarget(parts,mask,width,height,x,y){
+  if(x<0||y<0||x>1||y>1||mask.length!==width*height)return {kind:'protected'}
+  const index=Math.min(height-1,Math.floor(y*height))*width+Math.min(width-1,Math.floor(x*width))
+  if(!(mask[index]>.5))return {kind:'protected'}
+  const part=[...parts].reverse().find(part=>partContainsPoint(part,x,y))
+  return part?{kind:'part',id:part.id}:{kind:'main'}
 }
 
 export function polygonArea(points){

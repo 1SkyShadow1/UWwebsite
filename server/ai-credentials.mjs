@@ -62,8 +62,8 @@ export async function getAiCredential({path=defaultPath,env=process.env,provider
   return key
 }
 
-export async function aiCredentialConfigured({path=defaultPath,env=process.env}={}){
-  const provider=await getAiProvider({path,env})
+export async function aiCredentialConfigured({path=defaultPath,env=process.env,provider}={}){
+  provider ||= await getAiProvider({path,env})
   if(aiProviderKey(provider,env))return true
   try{const record=JSON.parse(await readFile(path,'utf8'));return record.version===2?typeof record.credentials?.[provider]==='string':(record.provider || 'openai')===provider}catch{return false}
 }

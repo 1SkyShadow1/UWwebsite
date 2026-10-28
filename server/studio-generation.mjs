@@ -4,11 +4,13 @@ import { resolve } from 'node:path'
 import sharp from 'sharp'
 import { materialResponse } from '../src/studio/material-response.js'
 import { getAiCredential, aiCredentialConfigured, getAiProvider } from './ai-credentials.mjs'
-import { aiProviderName } from './ai-providers.mjs'
+import { aiProviderName, aiProviderVariable } from './ai-providers.mjs'
 import { materials as catalogueMaterials } from '../src/data/materials.js'
 import { REGION_COLORS, MAX_PARTS, PART_TYPES } from '../src/studio/part-regions.js'
-import { generationModel, pollinationsDetails, pollinationsModelProfile } from './studio-models.mjs'
+import { generationModel, generationRoute, pollinationsDetails, pollinationsModelProfile } from './studio-models.mjs'
+import { GENERATION_MODES, validateGenerationMode } from '../src/studio/generation-modes.js'
 import { createFabricCompositor, editFabricRegions } from './studio-fabric-passes.mjs'
+import { identifyPartTypes, PART_IDENTIFICATION_MODEL } from './studio-part-identification.mjs'
 export { pollinationsModelProfile } from './studio-models.mjs'
 
 export class StudioGenerationError extends Error {
@@ -71,9 +73,10 @@ export function validatePartFabrics(body){
 }
 
 export function generationDigest(provider,body,model=''){
+  validateGenerationMode(body.generationMode)
   validateNativeSize(body.nativeSize)
   const components=validatePartFabrics(body)
-  return createHash('sha256').update('isolated-fabrics-v1').update(provider).update(model).update(body.materialId).update(body.nativeSize || 'default').update(body.imageData).update(body.maskData).update(body.regionData || '').update(JSON.stringify(components)).update(String(body.keepRest===true)).digest('hex')
+  return createHash('sha256').update('isolated-fabrics-v2').update(body.generationMode || 'legacy').update(provider).update(model).update(body.materialId).update(body.nativeSize || 'default').update(body.imageData).update(body.maskData).update(body.regionData || '').update(JSON.stringify(components)).update(String(body.keepRest===true)).digest('hex')
 }
 
 export async function prepareGeneration(body,material,{maximumEdge=3840}={}){
@@ -306,17 +309,29 @@ export async function compositeGeneration(prepared,generated){
   await compositor.add(generated,[1]);return compositor.finish()
 }
 
-export function createStudioGenerationService({getKey=getAiCredential,isConfigured=aiCredentialConfigured,getProvider=getAiProvider,edit,now=Date.now,timeoutMs=240000,maxActive=2,maxCachedBytes=128_000_000,quality='high',maximumEdge=3840,env=process.env}={}){
+export function createStudioGenerationService({getKey=getAiCredential,isConfigured=aiCredentialConfigured,getProvider=getAiProvider,edit,identify=identifyPartTypes,now=Date.now,timeoutMs=240000,maxActive=2,maxCachedBytes=128_000_000,quality='high',maximumEdge=3840,env=process.env}={}){
   if(!['low','high'].includes(quality)||!Number.isInteger(maximumEdge)||maximumEdge<1024||maximumEdge>3840)throw new TypeError('Choose a supported generation quality and edge limit.')
   const jobs=new Map(),ttl=15*60*1000
   const modelFor=(provider,nativeSize)=>generationModel(provider,nativeSize,env)
   const trim=()=>{for(const [id,job]of jobs)if(now()-job.created>ttl){job.abort.abort();jobs.delete(id)}}
   const publicJob=job=>({id:job.id,status:job.status,stage:job.stage,error:job.error,materialId:job.materialId,...(job.result || {})})
   const active=job=>['preparing','generating','finishing'].includes(job.status)
+  async function planIdentification(){
+    if(!await isConfigured({provider:'google'}))reject(503,'Part identification needs the server-only GEMINI_API_KEY connection. Manual part types remain available.')
+    const model=env.GEMINI_PARTS_MODEL || PART_IDENTIFICATION_MODEL
+    if(!/^[a-zA-Z0-9._-]+$/.test(model))reject(503,'Configure a valid GEMINI_PARTS_MODEL on the server.')
+    return {provider:'google',model}
+  }
+  async function plan(body){
+    const route=generationRoute(body,await getProvider(),env,quality)
+    if(route.provider==='openai'&&body.components?.length)reject(400,'Separate-fabric editing requires the Pollinations or Google connection.')
+    if(!await isConfigured({provider:route.provider}))reject(503,`${route.generationMode==='quick'?'Quick':route.generationMode==='realism'?'Realism':'AI editing'} is not connected. Configure the server-only ${aiProviderVariable(route.provider)} connection. No other provider was charged.`)
+    return route
+  }
   async function run(job,body,material,preparedInput){
     const timer=setTimeout(()=>job.abort.abort(),timeoutMs)
     try{
-      const prepared=preparedInput || await prepareGeneration(body,material,{maximumEdge})
+      const prepared=preparedInput || await prepareGeneration({...body,nativeSize:job.nativeSize},material,{maximumEdge})
       if(job.abort.signal.aborted)throw Error('cancelled')
       const key=await getKey({provider:job.provider})
       if(!key)reject(503,'Generative AI is not connected. Save your API key using the local connection page.')
@@ -328,8 +343,8 @@ export function createStudioGenerationService({getKey=getAiCredential,isConfigur
       job.result=await design.finish()
       if(job.abort.signal.aborted)throw Error('cancelled')
       job.status='complete';job.stage='AI reupholstery is ready.'
-      let bytes=[...jobs.values()].reduce((sum,item)=>sum+(item.result?.imageData.length || 0),0)
-      for(const item of jobs.values())if(bytes>maxCachedBytes&&item.id!==job.id&&item.result){bytes-=item.result.imageData.length;item.result=null;item.status='expired';item.error='This temporary result has expired. Generate a new edit.'}
+      let bytes=[...jobs.values()].reduce((sum,item)=>sum+(item.result?.imageData?.length || 0),0)
+      for(const item of jobs.values())if(bytes>maxCachedBytes&&item.id!==job.id&&item.result?.imageData){bytes-=item.result.imageData.length;item.result=null;item.status='expired';item.error='This temporary result has expired. Generate a new edit.'}
     }catch(error){
       job.result=null
       if(job.abort.signal.aborted){job.status=job.cancelled?'cancelled':'failed';job.error=job.cancelled?'AI edit cancelled.':'AI editing took too long. Your original is still here; retry later.'}
@@ -337,28 +352,53 @@ export function createStudioGenerationService({getKey=getAiCredential,isConfigur
     }finally{clearTimeout(timer)}
   }
   return {
+    plan,
+    planIdentification,
+    async identify(owner,body,key,materials,{prepared:preparedInput,route}={}){
+      trim()
+      if(!/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(key || ''))reject(400,'Use a unique part identification reference.')
+      const planned=route || await planIdentification(),material=materials.find(item=>item.id===body.materialId)
+      if(!material)reject(400,'Choose a known fabric before identifying parts.')
+      const prepared=preparedInput || await prepareGeneration(body,material,{maximumEdge})
+      if(!prepared.components.length)reject(400,'Find sections or outline a pillow or cushion first.')
+      const digest='identify-parts:'+generationDigest('google',body,planned.model),previous=[...jobs.values()].find(job=>job.owner===owner&&job.key===key)
+      if(previous){if(previous.digest!==digest)reject(409,'This request belongs to another photograph or operation.');return publicJob(previous)}
+      if(jobs.size>=200||[...jobs.values()].filter(active).length>=maxActive||[...jobs.values()].some(job=>job.owner===owner&&active(job)))reject(429,'An AI operation is already running. Wait for it to finish.')
+      const job={id:randomUUID(),owner,key,digest,abort:new AbortController(),created:now(),status:'generating',stage:'Identifying pillows, cushions and the main furniture…'}
+      jobs.set(job.id,job)
+      void (async()=>{
+        const timer=setTimeout(()=>job.abort.abort(),60000)
+        try{
+          const key=await getKey({provider:'google'});if(!key)reject(503,'Gemini part identification is not connected.')
+          const result=await untilAborted(identify(prepared,{key,model:planned.model,signal:job.abort.signal}),job.abort.signal)
+          if(job.abort.signal.aborted)throw Error('cancelled')
+          job.result={...result,operation:'identify-parts'};job.status='complete';job.stage='Furniture parts identified. Review each name and outline.'
+        }catch(error){job.result=null;job.status=job.cancelled?'cancelled':'failed';job.error=job.abort.signal.aborted?'Part identification stopped. Your outlines and fabrics are unchanged; started analysis may still use credits.':error.status?error.message:'Part identification could not finish. Choose the types manually.'}
+        finally{clearTimeout(timer)}
+      })()
+      return publicJob(job)
+    },
     async capabilities(){
       const provider=await getProvider(),model=modelFor(provider),details=provider==='pollinations'?pollinationsDetails(env):null
-      return {configured:await isConfigured(),provider:aiProviderName(provider),model,quality,supportedNativeSizes:details?.map(item=>item.size) || ['1K','2K','4K'],detailModels:details,maximumParts:provider==='openai'?0:MAX_PARTS,separateFabricMode:'isolated-edits',maximumFabricEdits:MAX_PARTS+1,requestedNativeSize:provider==='pollinations'?'1K':provider==='google'?(quality==='low'?'1K':env.GOOGLE_IMAGE_SIZE || '1K'):undefined,retentionMinutes:15,maximumNativePixels:provider==='openai'?Math.min(8_294_400,maximumEdge*maximumEdge):20_000_000,maximumNativeEdge:provider==='openai'?maximumEdge:6144,photosSentOnRequest:true}
+      const modes=await Promise.all(Object.entries(GENERATION_MODES).map(async([id,definition])=>{
+        const route=generationRoute({generationMode:id},provider,env,quality),configured=await isConfigured({provider:route.provider})
+        return {id,label:definition.label,provider:aiProviderName(route.provider),model:route.model,configured,defaultSize:route.nativeSize,supportedNativeSizes:quality==='low'?['1K']:definition.sizes,maximumParts:MAX_PARTS,setupMessage:configured?undefined:`${definition.label} is unavailable. Add the server-only ${aiProviderVariable(route.provider)} connection.`}
+      }))
+      return {configured:await isConfigured({provider}),provider:aiProviderName(provider),model,quality,modes,partIdentification:{configured:await isConfigured({provider:'google'}),provider:'Google Gemini',model:env.GEMINI_PARTS_MODEL || PART_IDENTIFICATION_MODEL,photosSentOnRequest:true,cushionOnly:true,automaticByDefault:false},partSelectionMode:'cushions-and-main',defaultGenerationMode:'quick',supportedNativeSizes:details?.map(item=>item.size) || ['1K','2K','4K'],detailModels:details,maximumParts:provider==='openai'?0:MAX_PARTS,separateFabricMode:'isolated-edits',maximumFabricEdits:MAX_PARTS+1,requestedNativeSize:provider==='pollinations'?'1K':provider==='google'?(quality==='low'?'1K':env.GOOGLE_IMAGE_SIZE || '1K'):undefined,retentionMinutes:15,maximumNativePixels:provider==='openai'?Math.min(8_294_400,maximumEdge*maximumEdge):20_000_000,maximumNativeEdge:provider==='openai'?maximumEdge:6144,photosSentOnRequest:true}
     },
-    async start(owner,body,key,materials,{prepared:preparedInput}={}){
+    async start(owner,body,key,materials,{prepared:preparedInput,route:plannedRoute}={}){
       trim()
       if(!/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(key || ''))reject(400,'Use a unique generation request reference.')
       const material=materials.find(item=>item.id===body.materialId)
       if(!material)reject(400,'Choose a known fabric before generating.')
       imageBuffer(body.imageData,'Photograph');imageBuffer(body.maskData,'Selection mask')
-      const provider=await getProvider()
-      if(provider==='openai'&&body.components?.length)reject(400,'Separate-fabric editing requires the Pollinations or Google connection.')
-      const nativeSize=quality==='low'?'1K':body.nativeSize || '1K',model=modelFor(provider,nativeSize)
-      if(provider==='pollinations'&&!pollinationsModelProfile(model).nativeSizes.includes(nativeSize))reject(400,'Choose a supported AI image detail for the connected Pollinations model.')
+      const route=plannedRoute || await plan(body),{provider,model,nativeSize}=route
       const digest=generationDigest(provider,body,model)
-      const configured=await isConfigured()
       const previous=[...jobs.values()].find(job=>job.owner===owner&&job.key===key)
       if(previous){if(previous.digest!==digest)reject(409,'This generation reference belongs to another edit. Start a new generation.');return publicJob(previous)}
-      if(!configured)reject(503,'Generative AI is not connected. Save your API key using the local connection page.')
       if([...jobs.values()].filter(active).length>=maxActive||[...jobs.values()].some(job=>job.owner===owner&&active(job)))reject(429,'An AI edit is already running. Wait for it to finish before starting another.')
       if(jobs.size>=200)reject(429,'The AI studio is busy. Please try again later.')
-      const job={id:randomUUID(),owner,key,digest,provider,model,materialId:body.materialId,created:now(),abort:new AbortController(),status:'preparing',stage:'Preparing the original photograph and fabric reference…'}
+      const job={id:randomUUID(),owner,key,digest,provider,model,nativeSize,generationMode:route.generationMode,materialId:body.materialId,created:now(),abort:new AbortController(),status:'preparing',stage:'Preparing the original photograph and fabric reference…'}
       jobs.set(job.id,job);void run(job,body,material,preparedInput)
       return publicJob(job)
     },

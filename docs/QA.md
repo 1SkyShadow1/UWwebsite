@@ -1,5 +1,16 @@
 # Store and showroom validation
 
+## 28 October 2026 — Studio modes and cushion-only sections
+
+- Complete suite: 95 passing tests, including Gemini structured-response validation, ambiguous/panel rejection, furniture-only pixel ownership, duplicate-safe private hosted recognition and Quick/Realism provider routing.
+- Production build and 260-asset audit pass. Existing Three.js chunk-size advisory remains.
+- Browser verification used real local furniture selection/SlimSAM boundaries and mocked provider adapters: six proposals yielded three accepted cushion/pillow cards plus the main couch; arms, panels and uncertain regions were filtered out. Recognition was requested explicitly, not on the default Quick path.
+- Assigned separate linen and leather fabrics while the main upholstery retained velvet. Correcting a part type retained its exact SVG outline and fabric. Mocked three-fabric generation completed with comparison and download enabled. Realism allowed 4K and remembered it across a Quick switch, while Quick stayed at 1K.
+- Recognition/image-generation provider responses were mocked; no paid inference or new provider-quality proof was run. Recognition accuracy on customer photographs and queue-dependent latency are not guaranteed by these workflow tests. Manual correction remains available.
+- Completed section analysis releases its large WASM worker before provider work. A lifecycle regression test verifies the next request can start a fresh worker.
+- No schema migration or secret changes. Successful recognition is cached for matching current-photo boundaries, and changing generation modes never initiates paid recognition.
+
+
 Latest local review: 22 October 2026.
 
 ## Fabric isolation and automatic sections — 22 October 2026

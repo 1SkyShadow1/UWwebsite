@@ -1,3 +1,5 @@
+import { validateGenerationMode } from '../src/studio/generation-modes.js'
+
 export const POLLINATIONS_QUICK_MODEL='black-forest-labs/flux.2-klein-4b'
 export const POLLINATIONS_DETAIL_MODEL='black-forest-labs/flux-3-image-klein'
 const profiles=Object.freeze({
@@ -16,4 +18,17 @@ export function generationModel(provider,nativeSize='1K',env=process.env){
 export function pollinationsDetails(env=process.env){
   const details=['1K','2K','4K'].map(size=>({size,model:generationModel('pollinations',size,env)}))
   return details.filter(item=>pollinationsModelProfile(item.model).nativeSizes.includes(item.size))
+}
+
+// Explicit modes cannot silently switch providers or increase Quick's size.
+// Requests from older clients retain the configured provider and size routing.
+export function generationRoute(body,defaultProvider,env=process.env,quality='high'){
+  const mode=validateGenerationMode(body.generationMode)
+  if(body.nativeSize!==undefined&&!['1K','2K','4K'].includes(body.nativeSize))throw Object.assign(new Error('Choose a supported AI image detail.'),{status:400})
+  if(mode==='quick'&&body.nativeSize&&body.nativeSize!=='1K')throw Object.assign(new Error('Quick mode stays at 1K for speed. Choose Realism for 2K or 4K.'),{status:400})
+  const provider=mode==='quick'?'pollinations':mode==='realism'?'google':defaultProvider
+  const nativeSize=quality==='low'?'1K':body.nativeSize || (mode==='realism'?'2K':'1K')
+  const model=mode==='quick'?POLLINATIONS_QUICK_MODEL:generationModel(provider,nativeSize,env)
+  if(provider==='pollinations'&&!pollinationsModelProfile(model).nativeSizes.includes(nativeSize))throw Object.assign(new Error('Choose a supported AI image detail for the connected Pollinations model.'),{status:400})
+  return {provider,model,nativeSize,generationMode:mode}
 }

@@ -74,7 +74,7 @@ self.onmessage = async ({ data }) => {
     }
     const best=chooseConsistentMasks(results)
     if(anchor)for(let y=0;y<best.height;y++)for(let x=0;x<best.width;x++)if((x+.5)/best.width<anchor.left||(x+.5)/best.width>anchor.right||(y+.5)/best.height<anchor.top||(y+.5)/best.height>anchor.bottom)best.values[y*best.width+x]=0
-    self.postMessage({ id,...best }, [best.values.buffer])
+    self.postMessage({ id,...best,furnitureType:anchor?.category }, [best.values.buffer])
   } catch (error) {
     self.postMessage({ id, error: error.message || 'Selection failed' })
   } finally {

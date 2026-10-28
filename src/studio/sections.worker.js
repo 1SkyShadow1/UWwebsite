@@ -15,7 +15,7 @@ self.onmessage=async({data})=>{
   busy=true
   let inputs,output,tensor
   try{
-    const [model,processor]=await getModel(),image=new RawImage(new Uint8ClampedArray(data.pixels),data.width,data.height,4),upholstery=new Float32Array(data.mask)
+    const [model,processor]=await getModel(),photoPixels=new Uint8ClampedArray(data.pixels),image=new RawImage(photoPixels,data.width,data.height,4),upholstery=new Float32Array(data.mask)
     const seeds=sectionSeeds(upholstery,data.width,data.height)
     if(!seeds.length){self.postMessage({id:data.id,sections:[]});return}
     self.postMessage({progress:'Analysing cushion and panel boundaries on this device. This may take a minute; you can stop detection and outline a part manually.'})

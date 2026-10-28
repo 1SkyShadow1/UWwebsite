@@ -164,3 +164,11 @@
 .studio-detection-actions button { min-height: 44px; padding: 8px 12px; color: var(--text); background: var(--panel); border: 1px solid var(--edge); font-size: 12px; }
 .studio-part-origin { display: block; margin-top: 4px; font: 500 9px/1.5 var(--body); color: var(--gold); }
 .studio-fabric-cost { font-size: 12px; line-height: 1.7; color: var(--text); }
+.studio-generation-modes { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:22px 0 12px; }
+.studio-generation-modes button { position:relative; display:grid; gap:5px; padding:18px 16px; text-align:left; color:var(--text); background:var(--panel); border:1px solid var(--edge); min-height:90px; }
+.studio-generation-modes strong { font:500 18px/1.2 var(--body); }
+.studio-generation-modes small { color:var(--muted); font-size:11px; line-height:1.5; }
+.studio-generation-modes button>span { position:absolute; right:14px; top:15px; color:var(--gold); }
+.studio-generation-modes button[aria-pressed="true"] { border-color:var(--gold); box-shadow:inset 0 0 0 1px var(--gold); background:var(--gold-faint,var(--panel)); }
+.studio-generation-modes button:focus-visible { outline:2px solid var(--gold); outline-offset:3px; }
+.studio-mode-help { color:var(--muted); font-size:12px; line-height:1.7; margin:0 0 18px; }

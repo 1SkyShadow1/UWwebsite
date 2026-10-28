@@ -9,12 +9,12 @@ function pause(ms,signal){
   })
 }
 
-export async function generateUpholstery(request,body,{signal,key,onStatus=()=>{},pollMs=650}={}){
+export async function generateUpholstery(request,body,{signal,key,onStatus=()=>{},pollMs=650,endpoint='/api/studio/generations',timeoutMs=285000}={}){
   let id
   const cancel=()=>{if(id)void request(`/api/studio/generations/${id}`,{method:'DELETE'}).catch(()=>{})}
   signal?.addEventListener('abort',cancel,{once:true})
   try{
-    let job=await request('/api/studio/generations',{method:'POST',body,signal,timeoutMs:285000,headers:{'Idempotency-Key':key,Accept:'application/x-ndjson'},onProgress:progress=>{id=progress.id;if(progress.stage)onStatus(progress.stage)}})
+    let job=await request(endpoint,{method:'POST',body,signal,timeoutMs,headers:{'Idempotency-Key':key,Accept:'application/x-ndjson'},onProgress:progress=>{id=progress.id;if(progress.stage)onStatus(progress.stage)}})
     id=job.id
     if(signal?.aborted){cancel();throw signal.reason}
     const start=Date.now()
@@ -40,8 +40,8 @@ export function selectionMaskCanvas(mask,width,height){
   return canvas
 }
 
-export function generationInputs(photo,mask,maskWidth,maskHeight,{regionLabels}={}){
-  const width=photo.naturalWidth || photo.width,height=photo.naturalHeight || photo.height,scale=Math.min(1,2048/Math.max(width,height))
+export function generationInputs(photo,mask,maskWidth,maskHeight,{regionLabels,generationMode}={}){
+  const width=photo.naturalWidth || photo.width,height=photo.naturalHeight || photo.height,maximumEdge=generationMode==='quick'?1280:2048,scale=Math.min(1,maximumEdge/Math.max(width,height))
   const source=document.createElement('canvas');source.width=Math.max(1,Math.round(width*scale));source.height=Math.max(1,Math.round(height*scale))
   source.getContext('2d').drawImage(photo,0,0,source.width,source.height)
   const small=selectionMaskCanvas(mask,maskWidth,maskHeight),maskCanvas=document.createElement('canvas');maskCanvas.width=source.width;maskCanvas.height=source.height

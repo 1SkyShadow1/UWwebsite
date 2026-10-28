@@ -1,5 +1,7 @@
 # AI Studio implementation and asset audit
 
+Historical asset audit: see [STUDIO.md](STUDIO.md) for the current explicit AI image workflow, Quick/Realism modes and cushion-only section recognition.
+
 ## Delivered workflow
 
 `/ai-studio.html` shares the complete material dataset with `/materials.html`.

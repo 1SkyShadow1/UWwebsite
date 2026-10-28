@@ -22,12 +22,14 @@ import { bindProjects, savePlanDraft, planPayload } from './features/projects.js
 import { bindComparison } from './features/comparison.js'
 import { bindOverlays } from './features/accessibility.js'
 import { bindShowroomPhotos } from './features/showroom-photos.js'
+import { bindHeader } from './features/header.js'
 import { bindStorefront, paintShoppingUi, productDetailMarkup, recordRecentProduct, storefrontMarkup } from './features/storefront.js'
 import { createShoppingSync } from './features/shopping-sync.js'
 import { normaliseSearch } from './data/discovery.js'
 import { icon } from './lib/icons.js'
 import './atelier.css'
 import './store.css'
+import './header-glass.css'
 import './showroom-photos.css'
 import './studio/studio-next.css'
 
@@ -347,8 +349,8 @@ function shell(content) {
     <div class="site-announcement"><span>Considered furniture. Beautiful surfaces. All things upholstery.</span><a href="/profile.html">Your own little showroom ↗</a></div>
     <header class="site-header">
       <a class="brand-lockup" href="/index.html" aria-label="Upholstery Warehouse home">${brand}</a>
-      <nav class="site-nav" aria-label="Primary navigation">${navItems.map(([key, path, label]) => `<a class="${state.route === key ? 'active' : ''}" ${state.route === key ? 'aria-current="page"' : ''} href="${path}">${label}</a>`).join('')}<a class="mobile-saved-link" href="/profile.html">My showroom ↗</a></nav>
-      <div class="header-tools"><button class="tool-button search-trigger" type="button" data-open-search aria-label="Search the showroom" title="Search furniture, fabrics and tools (Ctrl+K)">${icon('search')}</button><button class="tool-button" data-action="theme" aria-label="Switch to ${state.theme === 'dark' ? 'light' : 'dark'} theme" title="Change colour theme">${icon(state.theme === 'dark' ? 'sun' : 'moon')}</button><a class="tool-button saved-trigger" href="/profile.html" aria-label="My saved showroom" title="Your favourites">${icon('heart')}<b data-wishlist-count>${state.wishlist.length}</b></a><button class="tool-button swatch-trigger" data-action="swatches" aria-label="Open swatch book" title="Your swatch book" aria-expanded="false">${icon('grid')}<b>${state.swatches.length}</b></button><button class="tool-button cart-trigger" data-action="cart" aria-label="Open shopping bag" title="Furniture selection" aria-expanded="false">${icon('bag')}<b>${cartCount()}</b></button><a class="header-project" href="/estimator.html">Plan a project <span>↗</span></a><button class="mobile-menu" data-action="menu" aria-label="Toggle navigation" aria-expanded="false">${icon('menu')}</button></div>
+      <nav class="site-nav" id="site-navigation" aria-label="Primary navigation">${navItems.map(([key, path, label]) => `<a class="${state.route === key ? 'active' : ''}" ${state.route === key ? 'aria-current="page"' : ''} href="${path}">${label}</a>`).join('')}<a class="mobile-saved-link" href="/profile.html">My showroom ↗</a></nav>
+      <div class="header-tools"><button class="tool-button search-trigger" type="button" data-open-search aria-label="Search the showroom" title="Search furniture, fabrics and tools (Ctrl+K)">${icon('search')}</button><button class="tool-button" data-action="theme" aria-label="Switch to ${state.theme === 'dark' ? 'light' : 'dark'} theme" title="Change colour theme">${icon(state.theme === 'dark' ? 'sun' : 'moon')}</button><a class="tool-button saved-trigger" href="/profile.html" aria-label="My saved showroom" title="Your favourites">${icon('heart')}<b data-wishlist-count>${state.wishlist.length}</b></a><button class="tool-button swatch-trigger" data-action="swatches" aria-label="Open swatch book" title="Your swatch book" aria-expanded="false">${icon('grid')}<b>${state.swatches.length}</b></button><button class="tool-button cart-trigger" data-action="cart" aria-label="Open shopping bag" title="Furniture selection" aria-expanded="false">${icon('bag')}<b>${cartCount()}</b></button><a class="header-project" href="/estimator.html">Plan a project <span>↗</span></a><button class="mobile-menu" type="button" data-action="menu" aria-controls="site-navigation" aria-label="Toggle navigation" aria-expanded="false">${icon('menu')}</button></div>
     </header>
     <aside class="swatch-drawer" role="dialog" aria-modal="true" aria-label="Your swatch book" aria-hidden="true"><div class="drawer-head"><strong>Your swatch book</strong><button data-action="close-swatches" aria-label="Close swatch book">×</button></div><div class="drawer-list">${state.swatches.map(id => { const item = materials.find(material => material.id === id); return item ? `<div class="drawer-item"><img src="${item.image}" alt=""><span><b>${item.name}</b><small>${item.type} · ${item.shade}</small><em>${item.caution}</em></span><button data-remove-swatch="${item.id}" aria-label="Remove ${item.name}">×</button></div>` : '' }).join('')}</div><div class="drawer-foot"><span>${state.swatches.length} of 8 materials saved</span><a class="button gold" href="/profile.html#my-materials">View swatch book</a></div></aside>
     <div class="drawer-backdrop" data-action="close-swatches"></div>
@@ -445,6 +447,7 @@ function render() {
   nextApp.innerHTML = shell(pageRenderers[state.route](context))
   app.replaceWith(nextApp)
   bind()
+  bindHeader({ signal: pageController.signal })
   bindProjects({ state, materials, notify, signal: pageController.signal })
   bindComparison({ state, materials, notify, signal: pageController.signal })
   bindOverlays({ signal: pageController.signal })
@@ -598,11 +601,6 @@ function bind() {
     document.querySelector('.app-shell').classList.toggle('theme-light', state.theme === 'light')
     event.currentTarget.innerHTML = icon(state.theme === 'dark' ? 'sun' : 'moon')
     event.currentTarget.setAttribute('aria-label', `Switch to ${state.theme === 'dark' ? 'light' : 'dark'} theme`)
-  })
-  document.querySelector('[data-action="menu"]')?.addEventListener('click', event => {
-    const nav = document.querySelector('.site-nav')
-    const open = nav?.classList.toggle('open') || false
-    event.currentTarget.setAttribute('aria-expanded', String(open))
   })
   document.querySelector('[data-action="swatches"]')?.addEventListener('click', () => {
     document.querySelector('.swatch-drawer')?.classList.add('open')

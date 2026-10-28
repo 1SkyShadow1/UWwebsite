@@ -1,0 +1,137 @@
+/* Shared glass navigation. The opaque brand inset preserves the original logo. */
+:root {
+  --header-gap: 10px;
+  --nav-height: 116px;
+  --header-height: calc(var(--announcement-height) + var(--nav-height) + var(--header-gap) + var(--header-gap));
+}
+.site-announcement {
+  --glass-solid: #080808;
+  background: #080808df;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.theme-light .site-announcement { --glass-solid: #faf9f4; background: #faf8f0e8; color: #514b3c; border-color: #0000000f; }
+.theme-light .site-announcement a { color: #806400; }
+.site-header,.theme-light .site-header {
+  --glass-surface: #121212bf;
+  --glass-solid: #161616;
+  --glass-text: #f8f6ef;
+  --glass-muted: #d4d0c5;
+  --glass-edge: #ffffff24;
+  --glass-chip: #ffffff08;
+  --glass-hover: #ffffff12;
+  --glass-accent: #f5ce39;
+  --text: var(--glass-text);
+  --muted: var(--glass-muted);
+  --edge: var(--glass-edge);
+  --deep: var(--glass-chip);
+  --gold: var(--glass-accent);
+  top: calc(var(--announcement-height) + var(--header-gap));
+  left: clamp(10px,1.5vw,28px); right: clamp(10px,1.5vw,28px);
+  height: var(--nav-height); padding: 6px 16px 6px 8px; gap: 16px;
+  border: 1px solid var(--glass-edge); border-radius: 24px;
+  background: linear-gradient(125deg,#ffffff0a,transparent 44%),var(--glass-surface);
+  color: var(--glass-text);
+  backdrop-filter: blur(26px) saturate(1.25);
+  -webkit-backdrop-filter: blur(26px) saturate(1.25);
+  box-shadow: inset 0 1px #ffffff10,0 10px 36px #0000001a;
+  transition: background .35s var(--ease),border-color .35s var(--ease),box-shadow .35s var(--ease);
+  isolation: isolate;
+}
+.theme-light .site-header {
+  --glass-surface: #ffffffb8;
+  --glass-solid: #faf9f4;
+  --glass-text: #201e18;
+  --glass-muted: #39362e;
+  --glass-edge: #28230b24;
+  --glass-chip: #22200e06;
+  --glass-hover: #a68a2020;
+  --glass-accent: #806400;
+  color-scheme: light;
+  box-shadow: inset 0 1px #fff,0 12px 38px #34280014;
+}
+.site-header.is-scrolled { --glass-surface: #121212db; border-color: #f5ce3938; box-shadow: inset 0 1px #ffffff14,0 14px 38px #00000033; }
+.theme-light .site-header.is-scrolled { --glass-surface: #ffffffd6; border-color: #80640038; box-shadow: inset 0 1px #fff,0 12px 32px #3428001a; }
+.site-header .brand-lockup {
+  display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  padding: 4px 8px; min-width: 0; border-radius: 17px;
+  background: #000; border: 1px solid #f5ce3930;
+  box-shadow: inset 0 1px #ffffff10,0 4px 12px #00000012;
+  transition: border-color .3s var(--ease),box-shadow .3s var(--ease);
+}
+.site-header .brand-lockup .brand-logo {
+  width: clamp(300px,26.4vw,380px); height: auto; max-width: 100%;
+  aspect-ratio: 858 / 210; object-fit: contain; transform: none; border-radius: 10px;
+}
+.site-header .brand-lockup:hover { border-color: #f5ce3960; box-shadow: inset 0 1px #ffffff18,0 4px 18px #f5ce3910; }
+.site-header .site-nav { display: flex; align-items: center; gap: 3px; padding: 5px; border: 1px solid var(--glass-edge); border-radius: 40px; background: var(--glass-chip); font-size: 14px; }
+.site-header .site-nav a {
+  position: relative; justify-content: center; min-height: 44px; padding: 10px 11px;
+  border: 0; border-radius: 30px; color: var(--glass-muted); white-space: nowrap;
+  transition: color .25s var(--ease),background .25s var(--ease),box-shadow .25s var(--ease);
+}
+.site-header .site-nav a.active { color: var(--glass-text); background: #f5ce3922; box-shadow: inset 0 0 0 1px #f5ce3938; font-weight: 500; }
+.site-header .site-nav a:hover { color: var(--glass-text); background: var(--glass-hover); }
+.site-header .site-nav .mobile-saved-link { display: none; }
+.site-header .header-tools { display: flex; align-items: center; flex-wrap: nowrap; flex-shrink: 0; gap: 5px; padding-left: 12px; border-left: 1px solid var(--glass-edge); }
+.site-header .header-tools .tool-button,.site-header .mobile-menu {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; min-width: 44px; min-height: 44px; flex: 0 0 44px;
+  padding: 0; gap: 0; border: 1px solid transparent; border-radius: 50%;
+  background: var(--glass-chip); color: var(--glass-text);
+  transition: color .25s var(--ease),background .25s var(--ease),border-color .25s var(--ease),transform .25s var(--ease);
+}
+.site-header .header-tools .tool-button:hover,.site-header .mobile-menu:hover { background: var(--glass-hover); color: var(--glass-accent); border-color: var(--glass-edge); transform: translateY(-2px); }
+.site-header .header-tools .tool-button:active,.site-header .mobile-menu:active { transform: translateY(0); }
+.site-header .header-tools .tool-button b {
+  position: absolute; right: -2px; top: -3px; display: grid; place-items: center;
+  min-width: 16px; height: 16px; padding: 0 3px; border-radius: 20px;
+  background: var(--glass-solid); border: 1px solid var(--glass-edge);
+  color: var(--glass-text); font: 500 9px/1 var(--body);
+}
+.site-header .header-tools .tool-button b.is-empty { display: none; }
+.site-header .mobile-menu { display: none; }
+.site-header .mobile-menu[aria-expanded=true] { color: #000; background: var(--brand-gold); border-color: var(--brand-gold); }
+.site-header .header-project { min-height: 44px; padding: 11px 14px; border-radius: 30px; color: var(--glass-accent); border-color: var(--glass-edge); font-size: 13px; }
+.site-header :focus-visible { outline: 2px solid var(--glass-accent); outline-offset: 3px; }
+@media(min-width:1441px) and (max-width:1700px) { .site-header .header-project { display: none; } }
+@media(max-width:1440px) {
+  .site-header .site-nav { display: none; }
+  .site-header .mobile-menu { display: inline-flex; }
+  .site-header .header-project { display: none; }
+  .site-header .brand-lockup .brand-logo { width: clamp(300px,37vw,380px); }
+  .site-header .site-nav.open {
+    display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: stretch;
+    position: absolute; inset: calc(100% + 10px) 0 auto;
+    width: auto; max-height: calc(100dvh - var(--header-height) - 80px);
+    overflow-y: auto; overscroll-behavior: contain; padding: 12px; gap: 6px;
+    border: 1px solid var(--glass-edge); border-radius: 20px;
+    background: var(--glass-solid); box-shadow: 0 16px 40px #00000026;
+    animation: glass-menu-enter .24s var(--ease) both;
+  }
+  .site-header .site-nav.open a { justify-content: flex-start; min-height: 48px; padding: 12px 18px; border-radius: 12px; font-size: 15px; }
+  .site-header .site-nav.open .mobile-saved-link { display: inline-flex; color: var(--glass-accent); }
+}
+@media(max-width:700px) {
+  :root { --header-gap: 8px; --nav-height: 164px; }
+  .site-header,.theme-light .site-header { left: 10px; right: 10px; padding: 8px 12px; flex-wrap: wrap; align-content: center; justify-content: center; gap: 8px; border-radius: 22px; }
+  .site-header .brand-lockup { flex-basis: auto; max-width: 100%; padding: 4px 8px; border-radius: 15px; }
+  .site-header .brand-lockup .brand-logo { width: min(348px,80vw); }
+  .site-header .header-tools { width: 100%; justify-content: space-between; border: 0; padding: 0; gap: 2px; }
+}
+@media(max-width:360px) {
+  .site-header,.theme-light .site-header { left: 6px; right: 6px; padding-inline: 8px; }
+  .site-header .header-tools { gap: 0; }
+}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
+  .site-header,.theme-light .site-header { background: var(--glass-solid); }
+}
+@media(prefers-reduced-transparency:reduce) {
+  .site-header,.theme-light .site-header,.site-announcement,.theme-light .site-announcement { background: var(--glass-solid,#000); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+@keyframes glass-menu-enter { from { opacity: 0; transform: translateY(-8px) scale(.985); } to { opacity: 1; transform: none; } }
+@media(prefers-reduced-motion:reduce) {
+  .site-header,.site-header .brand-lockup,.site-header .site-nav a,.site-header .tool-button,.site-header .mobile-menu { transition: none!important; }
+  .site-header .site-nav.open { animation: none; }
+  .site-header .header-tools .tool-button:hover,.site-header .mobile-menu:hover { transform: none; }
+}

@@ -66,7 +66,7 @@ export function mountStudio(materials,{isSaved=()=>false}={}){
     const locked=exporting||generationStarting||generationPending||sectionsDetecting
     const presentation=photoPresentation({mode,hasResult:Boolean(generated),showResult:showGenerated,showMask:$('mask-toggle').checked})
     root.dataset.photoState=generationPending?'generating':generated?'generated':source?'original':'empty'
-    $('generation').hidden=!editing
+    $('generation').hidden=$('generation-dock').hidden=!editing
     $('generate').disabled=sectionsDetecting||Boolean(partDraft)||parts.some(part=>!validOutline(part.points))||exporting||loading||generationStarting||generationPending||!generationConnected||!source||!selected||(mode==='photo'&&(analysisBusy||selecting))
     $('generate').textContent=generationPending?'AI is reupholstering…':generated?'Generate another version ↻':parts.length?'Generate this fabric design ✦':`Generate ${baseMaterial.name} ✦`
     $('generation-brief').textContent=parts.length?`${parts.length} individually dressed part${parts.length===1?'':'s'}${$('keep-rest').checked?', with the remaining upholstery preserved':` and ${baseMaterial.name} on the rest of the piece`}. AI fits all fabrics in one photograph.`:`Reupholster your piece in ${baseMaterial.name}. AI replaces the fabric using your original photograph, preserving the furniture’s shape, panel seams and room.`

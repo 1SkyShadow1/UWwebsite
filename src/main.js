@@ -854,7 +854,8 @@ function bind() {
     viewport.addEventListener('pointercancel', () => { down = false })
   }
 
-  const revealItems = document.querySelectorAll('.section, .swatchbook-intro, .swatchbook-library, .furniture-folio-heading, .form-card, .swatch-card, .journal-card, .service-list article')
+  // Keep the tall result library visible; only individual swatch cards reveal.
+  const revealItems = document.querySelectorAll('.section, .swatchbook-intro, .furniture-folio-heading, .form-card, .swatch-card, .journal-card, .service-list article')
   if ('IntersectionObserver' in window) {
     revealObserver = new IntersectionObserver(entries => {
       entries.forEach(entry => {

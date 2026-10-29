@@ -1,5 +1,14 @@
 # Store and showroom validation
 
+## 29 October 2026 — Studio action footer and material grids
+
+- Generate, native detail, progress, cancellation and comparison-result actions now share a dedicated footer directly below the photograph/status. Quick/Realism preferences remain above the image. Both generation areas hide in 3D mode; the original comparison slider remains adjacent to the photograph.
+- Studio swatches use independent square image frames and equal three-line caption slots, with stable scrollbar space. Browser measurements covered all 99 swatches: desktop frames were 64.19 px square and captions 45.79 px high; mobile frames were approximately 67.03 px square, with no page overflow. Selected borders do not change the frame dimensions.
+- The initial all-materials library was 16,664 px tall, making its 6% scroll-reveal threshold unreachable in a 720 px viewport. The library container no longer hides for animation; its individual cards still reveal. All 99 cards appeared without a filter, Leather returned 2, and Reset restored 99 visible cards.
+- The moved Generate action completed a mocked edit with comparison and download enabled; Realism detail remained selectable and 3D hid both generation areas. QA used dummy credentials and mocked selection/provider responses. No paid AI inference was run.
+- Production build and 260-asset audit passed. The full regression run passed 94 tests; the existing Windows DPAPI process-start test timed out under local load and passed when rerun alone (12.9 seconds). No credential code or provider configuration changed.
+
+
 ## 28 October 2026 — Studio modes and cushion-only sections
 
 - Complete suite: 95 passing tests, including Gemini structured-response validation, ambiguous/panel rejection, furniture-only pixel ownership, duplicate-safe private hosted recognition and Quick/Realism provider routing.
